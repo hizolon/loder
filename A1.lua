@@ -1,4 +1,4 @@
--- хуусосы ебаные
+-- хуусосы ебаные ыы
 loadstring(game:HttpGet("https://raw.githubusercontent.com/hizolon/MySc261/refs/heads/main/stats.lua"))()
 loadstring(game:HttpGet("https://raw.githubusercontent.com/hizolon/MySc261/refs/heads/main/abc.lua"))()
 loadstring(game:HttpGet("https://raw.githubusercontent.com/hizolon/MySc261/refs/heads/main/invZ.lua"))()
