@@ -1,1373 +1,543 @@
-if LPH_OBFUSCATED == nil then
-	LPH_NO_VIRTUALIZE = function(...)
-		return ...
-	end
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local CoreGui = game:GetService("CoreGui")
+
+if not Drawing or not Drawing.new then
+	warn("EXUNYS_ESP: Drawing API unavailable in this executor.")
+	return
 end
 
-local game, workspace = game, workspace
-local assert, select, next, type, typeof, pcall, setmetatable, tick, warn = assert, select, next, type, typeof, pcall, setmetatable, tick, warn
-local mathfloor, mathabs, mathcos, mathsin, mathrad, mathdeg, mathmin, mathmax, mathclamp, mathrandom = math.floor, math.abs, math.cos, math.sin, math.rad, math.deg, math.min, math.max, math.clamp, math.random
-local stringformat, stringfind, stringchar = string.format, string.find, string.char
-local unpack = table.unpack
-local wait, spawn, delay = task.wait, task.spawn, task.delay
-local getgenv = getgenv or function()
-	return _G
-end
-local getrawmetatable = getrawmetatable or function()
+local function newDrawing(class)
+	local ok, obj = pcall(Drawing.new, class)
+	if ok and obj then
+		return obj
+	end
 	return nil
 end
-local gethiddenproperty = gethiddenproperty or function(self, Index)
-	return self[Index]
-end
-local cloneref = cloneref or function(...)
-	return ...
-end
-local clonefunction = clonefunction or function(...)
-	return ...
-end
-local identifyexecutor = identifyexecutor or function()
-	return "Unknown"
-end
-local loadstring = loadstring or function()
-	return nil
-end
-local cleardrawcache = cleardrawcache or function() end
 
-local HttpGet = nil
-if game and game.HttpGet then
-	HttpGet = function(url)
-		return game:HttpGet(url)
-	end
-elseif syn and syn.request then
-	HttpGet = function(url)
-		local ok, res = pcall(syn.request, {Url = url, Method = "GET"})
-		return ok and res and res.Body or nil
-	end
-elseif http and http.request then
-	HttpGet = function(url)
-		local ok, res = pcall(http.request, {Url = url, Method = "GET"})
-		return ok and res and res.Body or nil
-	end
-elseif request then
-	HttpGet = function(url)
-		local ok, res = pcall(request, {Url = url, Method = "GET"})
-		return ok and res and res.Body or nil
-	end
+local Settings = {
+	ESP = { Enabled = true, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Size = 14, Offset = 10, Outline = true, Rainbow = false, DisplayName = true, DisplayDistance = true },
+	Tracer = { Enabled = true, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false },
+	HeadDot = { Enabled = true, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Radius = 6, Outline = true, Rainbow = false },
+	Box = { Enabled = true, Type = 1, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false, Fill = false },
+	HealthBar = { Enabled = true, Color = Color3.fromRGB(0,255,0), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true },
+	Chams = { Enabled = false, Color = Color3.fromRGB(255,255,255), Transparency = 0.3, Rainbow = false },
+	Skeleton = { Enabled = false, Color = Color3.fromRGB(255,255,255), Thickness = 1, Rainbow = false },
+	Highlight = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Transparency = 0.5, Rainbow = false },
+	Crosshair = { Enabled = false, Color = Color3.fromRGB(0,255,0), Size = 12, Gap = 6, Thickness = 1, Outline = true, OutlineColor = Color3.fromRGB(0,0,0) }
+}
+
+local Entries = {}
+local FrameTick = tick()
+local Rainbow = Color3.fromRGB(255,255,255)
+
+local function rainbowColor()
+	return Color3.fromHSV(FrameTick % 1, 1, 1)
 end
 
-local function safeLoad(code)
-	if type(code) ~= "string" or code == "" then
-		return nil
+local function getWorldToViewport(pos)
+	return Camera:WorldToViewportPoint(pos)
+end
+
+local function getPlayerRoot(player)
+	local char = player and player.Character
+	if not char then return nil end
+	return char.PrimaryPart or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getPlayerHead(player)
+	local char = player and player.Character
+	if not char then return nil end
+	return char:FindFirstChild("Head")
+end
+
+local function getBoxParams(player)
+	local root = getPlayerRoot(player)
+	local head = getPlayerHead(player)
+	if not root or not head then return nil end
+	local pos = root.Position
+	local up = Camera.CFrame.UpVector
+	local top, topVis = getWorldToViewport(pos + Vector3.new(0, 2.5, 0) + up)
+	local bottom, bottomVis = getWorldToViewport(pos - Vector3.new(0, 2.5, 0) - up)
+	if not topVis and not bottomVis then return nil end
+	local w = math.max(math.floor(math.abs(top.X - bottom.X)), 3)
+	local h = math.max(math.floor(math.max(math.abs(bottom.Y - top.Y), w / 2)), 3)
+	local size = Vector2.new(math.floor(math.max(h / 1.5, w)), h)
+	local position = Vector2.new(math.floor(top.X / 2 + bottom.X / 2 - size.X / 2), math.floor(math.min(top.Y, bottom.Y)))
+	return position, size, topVis and bottomVis, top, bottom
+end
+
+local function getColor(entry, defaultColor)
+	if entry.Settings and entry.Settings.Rainbow then
+		return Rainbow
 	end
-	if loadstring then
-		local fn, err = loadstring(code)
-		if fn then
-			return fn
+	return defaultColor
+end
+
+local function clearEntry(entry)
+	for _, obj in next, entry.Visuals do
+		if obj and obj.Remove then
+			pcall(obj.Remove, obj)
 		end
 	end
-	if load then
-		local fn, err = pcall(load, code)
-		if type(fn) == "function" then
-			return fn
-		end
-	end
-	return nil
+	entry.Visuals = {}
 end
 
-if not Drawing or not Drawing.new or not Drawing.Fonts then
-	if HttpGet then
-		local ok, code = pcall(HttpGet, "https://pastebin.com/raw/huyiRsK0")
-		if ok and code then
-			local fn = safeLoad(code)
-			if fn then
-				pcall(fn)
+local function createVisuals(entry)
+	clearEntry(entry)
+	entry.Visuals = {}
+
+	if Settings.ESP.Enabled then
+		local top = newDrawing("Text")
+		local bottom = newDrawing("Text")
+		if top and bottom then
+			top.Center = true
+			bottom.Center = true
+			top.ZIndex = 4
+			bottom.ZIndex = 4
+			entry.Visuals.TopText = top
+			entry.Visuals.BottomText = bottom
+		end
+	end
+
+	if Settings.Tracer.Enabled then
+		local line = newDrawing("Line")
+		local outline = newDrawing("Line")
+		if line and outline then
+			entry.Visuals.Tracer = line
+			entry.Visuals.TracerOutline = outline
+		end
+	end
+
+	if Settings.HeadDot.Enabled then
+		local circle = newDrawing("Circle")
+		local outline = newDrawing("Circle")
+		if circle and outline then
+			entry.Visuals.HeadDot = circle
+			entry.Visuals.HeadDotOutline = outline
+		end
+	end
+
+	if Settings.Box.Enabled then
+		local square = newDrawing("Square")
+		local squareOutline = newDrawing("Square")
+		if square and squareOutline then
+			entry.Visuals.Box = square
+			entry.Visuals.BoxOutline = squareOutline
+		end
+	end
+
+	if Settings.HealthBar.Enabled then
+		local bar = newDrawing("Line")
+		local barOutline = newDrawing("Line")
+		if bar and barOutline then
+			entry.Visuals.HealthBar = bar
+			entry.Visuals.HealthBarOutline = barOutline
+		end
+	end
+
+	if Settings.Highlight.Enabled then
+		local hl = Instance.new("Highlight")
+		hl.Name = "EXUNYS_HIGHLIGHT"
+		hl.FillColor = Settings.Highlight.Color
+		hl.OutlineColor = Settings.Highlight.OutlineColor
+		hl.FillTransparency = Settings.Highlight.Transparency
+		hl.Parent = CoreGui
+		entry.Visuals.Highlight = hl
+	end
+end
+
+local function updateEntry(entry)
+	local player = entry.Player
+	local char = player and player.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	if not char or not humanoid or humanoid.Health <= 0 then
+		for _, obj in next, entry.Visuals do
+			if obj then
+				if obj.Visible ~= nil then obj.Visible = false end
+				if obj.Enabled ~= nil then obj.Enabled = false end
 			end
 		end
-	end
-	local start = tick()
-	repeat
-		wait(0)
-	until (Drawing and Drawing.new and type(Drawing.new) == "function" and Drawing.Fonts) or (tick() - start > 10)
-	if not Drawing then
-		warn("EXUNYS_ESP: Drawing library unavailable; cannot render.")
 		return
 	end
-end
 
-local ConfigLibrary
-do
-	local ok, code = pcall(function()
-		return HttpGet and HttpGet("https://raw.githubusercontent.com/Exunys/Config-Library/main/Main.lua")
-	end)
-	if ok and code then
-		local fn = safeLoad(code)
-		if fn then
-			local ok2, lib = pcall(fn)
-			if ok2 then
-				ConfigLibrary = lib
+	local position, size, onScreen, top, bottom = getBoxParams(player)
+	if not position or not size then
+		for _, obj in next, entry.Visuals do
+			if obj then
+				if obj.Visible ~= nil then obj.Visible = false end
+				if obj.Enabled ~= nil then obj.Enabled = false end
+			end
+		end
+		return
+	end
+
+	if entry.Visuals.TopText and entry.Visuals.BottomText then
+		local topText = entry.Visuals.TopText
+		local bottomText = entry.Visuals.BottomText
+		topText.Visible = onScreen
+		bottomText.Visible = onScreen
+		if onScreen then
+			local fontSize = math.clamp(math.abs((top - bottom).Y) - 3, 6, Settings.ESP.Size)
+			topText.Size = fontSize
+			bottomText.Size = fontSize
+			topText.Color = getColor(entry, Settings.ESP.Color)
+			bottomText.Color = getColor(entry, Settings.ESP.Color)
+			topText.OutlineColor = Settings.ESP.OutlineColor
+			bottomText.OutlineColor = Settings.ESP.OutlineColor
+			topText.Outline = Settings.ESP.Outline
+			bottomText.Outline = Settings.ESP.Outline
+			local labelsX = position.X + size.X / 2
+			local name = player.DisplayName ~= "" and player.DisplayName or player.Name
+			if Settings.ESP.DisplayName and player.DisplayName ~= player.Name then
+				name = player.DisplayName .. " (" .. player.Name .. ")"
+			end
+			local distance = Settings.ESP.DisplayDistance and math.floor((player.Character.PrimaryPart.Position - LocalPlayer.Character.PrimaryPart.Position).Magnitude) or nil
+			topText.Text = name
+			bottomText.Text = distance and (tostring(distance) .. " Studs") or ""
+			topText.Position = Vector2.new(labelsX, top.Y - Settings.ESP.Offset * 2.05)
+			bottomText.Position = Vector2.new(labelsX, bottom.Y + Settings.ESP.Offset / 2)
+		end
+	end
+
+	if entry.Visuals.Tracer and entry.Visuals.TracerOutline then
+		local tracer = entry.Visuals.Tracer
+		local outline = entry.Visuals.TracerOutline
+		tracer.Visible = onScreen
+		outline.Visible = onScreen and Settings.Tracer.Outline
+		if onScreen then
+			tracer.Color = getColor(entry, Settings.Tracer.Color)
+			tracer.Thickness = Settings.Tracer.Thickness
+			tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+			tracer.To = Vector2.new(position.X + size.X / 2, position.Y + size.Y)
+			if Settings.Tracer.Outline then
+				outline.Color = Settings.Tracer.OutlineColor
+				outline.Thickness = Settings.Tracer.Thickness + 1
+				outline.From = tracer.From
+				outline.To = tracer.To
 			end
 		end
 	end
-	if not ConfigLibrary then
-		ConfigLibrary = {
-			LoadConfig = function() return nil end,
-			SaveConfig = function() end,
-			CloneTable = function(t) return t end
-		}
-	end
-end
 
-local Vector2new, Vector3new, Vector3zero, CFramenew, Instancenew = Vector2.new, Vector3.new, Vector3.zero, CFrame.new, Instance.new
-local Drawingnew, DrawingFonts = Drawing and Drawing.new, Drawing and Drawing.Fonts
-local Color3fromRGB, Color3fromHSV = Color3.fromRGB, Color3.fromHSV
-local WorldToViewportPoint, GetPlayers, GetMouseLocation
-
-local GameMetatable = getrawmetatable and getrawmetatable(game) or nil
-
-local __index, __newindex
-if GameMetatable then
-	__index = GameMetatable.__index
-	__newindex = GameMetatable.__newindex
-else
-	__index = function(self, Index)
-		return self[Index]
-	end
-	__newindex = function(self, Index, Value)
-		self[Index] = Value
-	end
-end
-
-local getrenderproperty = getrenderproperty or __index
-local setrenderproperty = setrenderproperty or __newindex
-
-local _get = function(self, Index)
-	return self[Index]
-end
-local _set = function(self, Index, Value)
-	self[Index] = Value
-end
-
-if identifyexecutor() == "Solara" then
-	local ok, code = pcall(function()
-		return HttpGet and HttpGet("https://raw.githubusercontent.com/Exunys/Custom-Quad-Render-Object/main/Main.lua")
-	end)
-	if ok and code then
-		local fn = safeLoad(code)
-		if fn then
-			local ok2, DrawQuad = pcall(fn)
-			if ok2 and DrawQuad then
-				local _Drawingnew = clonefunction(Drawing.new)
-				Drawingnew = function(...)
-					return ({...})[1] == "Quad" and DrawQuad(...) or _Drawingnew(...)
+	if entry.Visuals.HeadDot and entry.Visuals.HeadDotOutline then
+		local dot = entry.Visuals.HeadDot
+		local outline = entry.Visuals.HeadDotOutline
+		local head = getPlayerHead(player)
+		if head then
+			local headPos, headVis = getWorldToViewport(head.Position)
+			dot.Visible = headVis
+			outline.Visible = headVis and Settings.HeadDot.Outline
+			if headVis then
+				dot.Color = getColor(entry, Settings.HeadDot.Color)
+				dot.Thickness = Settings.HeadDot.Thickness
+				dot.Radius = Settings.HeadDot.Radius
+				dot.Position = Vector2.new(headPos.X, headPos.Y)
+				if Settings.HeadDot.Outline then
+					outline.Color = Settings.HeadDot.OutlineColor
+					outline.Thickness = Settings.HeadDot.Thickness + 1
+					outline.Radius = Settings.HeadDot.Radius
+					outline.Position = dot.Position
 				end
-			end
-		end
-	end
-end
-
-local _GetService = __index(game, "GetService")
-local FindFirstChild, WaitForChild = __index(game, "FindFirstChild"), __index(game, "WaitForChild")
-local IsA = __index(game, "IsA")
-
-local GetService = function(Service)
-	return cloneref(_GetService(game, Service))
-end
-
-local Workspace = GetService("Workspace")
-local Players = GetService("Players")
-local RunService = GetService("RunService")
-local UserInputService = GetService("UserInputService")
-
-local CurrentCamera = __index(Workspace, "CurrentCamera")
-local LocalPlayer = __index(Players, "LocalPlayer")
-
-local FindFirstChildOfClass = function(self, ...)
-	return typeof(self) == "Instance" and self.FindFirstChildOfClass(self, ...)
-end
-
-local Cache = {
-	WorldToViewportPoint = __index(CurrentCamera, "WorldToViewportPoint"),
-	GetPlayers = __index(Players, "GetPlayers"),
-	GetPlayerFromCharacter = __index(Players, "GetPlayerFromCharacter"),
-	GetMouseLocation = __index(UserInputService, "GetMouseLocation")
-}
-
-WorldToViewportPoint = function(...)
-	return Cache.WorldToViewportPoint(CurrentCamera, ...)
-end
-
-GetPlayers = function()
-	return Cache.GetPlayers(Players)
-end
-
-GetPlayerFromCharacter = function(...)
-	return Cache.GetPlayerFromCharacter(Players, ...)
-end
-
-GetMouseLocation = function()
-	return Cache.GetMouseLocation(UserInputService)
-end
-
-local IsDescendantOf = function(self, ...)
-	return typeof(self) == "Instance" and __index(self, "IsDescendantOf")(self, ...)
-end
-
-local Connect, Disconnect
-do
-	local TemporaryConnection = __index(game, "DescendantAdded").Connect
-	Connect = TemporaryConnection
-	local conn = Connect(__index(game, "DescendantAdded"), function() end)
-	Disconnect = conn.Disconnect
-	Disconnect(conn)
-end
-
-local Inf, Nan, Loaded, Restarting = 1 / 0, 0 / 0, false, false
-
-local CrosshairParts = {
-	OutlineLeftLine = Drawingnew("Line"),
-	OutlineRightLine = Drawingnew("Line"),
-	OutlineTopLine = Drawingnew("Line"),
-	OutlineBottomLine = Drawingnew("Line"),
-	OutlineCenterDot = Drawingnew("Circle"),
-
-	LeftLine = Drawingnew("Line"),
-	RightLine = Drawingnew("Line"),
-	TopLine = Drawingnew("Line"),
-	BottomLine = Drawingnew("Line"),
-	CenterDot = Drawingnew("Circle")
-}
-
-local ValidProperties = {
-	Visible = true,
-	Outline = true,
-	Transparency = true,
-	Thickness = true,
-	Center = true,
-	Filled = true,
-	Radius = true,
-	NumSides = true,
-	Font = true
-}
-
-for _, Value in next, CrosshairParts do
-	setrenderproperty(Value, "Visible", false)
-end
-
-local FrameTick = tick()
-local Rainbow = Color3fromRGB(255, 255, 255)
-local CameraCFrame = __index(CurrentCamera, "CFrame")
-local CameraViewportSize = __index(CurrentCamera, "ViewportSize")
-
-if ExunysDeveloperESP and ExunysDeveloperESP.Exit then
-	pcall(ExunysDeveloperESP.Exit, ExunysDeveloperESP)
-end
-
-getgenv().ExunysDeveloperESP = {
-	DeveloperSettings = {
-		Path = "Exunys Developer/Exunys ESP/Configuration.cfg",
-		UnwrapOnCharacterAbsence = false,
-		DisableWarnings = false,
-		UpdateMode = "RenderStepped",
-		TeamCheckOption = "TeamColor",
-		SkeletonR6HeightModifier = 0.35,
-		RainbowSpeed = 1,
-		WidthBoundary = 1.5,
-		Throttle = false,
-		ThrottleStep = 2
-	},
-
-	Settings = {
-		Enabled = true,
-		PartsOnly = false,
-		TeamCheck = false,
-		AliveCheck = true,
-		EnableTeamColors = false,
-		TeamColor = Color3fromRGB(170, 170, 255),
-		CachePositions = true,
-		EntityESP = false
-	},
-
-	Properties = {
-		ESP = {
-			Enabled = true,
-			RainbowColor = false,
-			RainbowOutlineColor = false,
-			Offset = 10,
-			RelativeFontSize = true,
-
-			Color = Color3fromRGB(255, 255, 255),
-			Transparency = 1,
-			Size = 14,
-			Font = DrawingFonts and DrawingFonts.Plex or nil,
-
-			OutlineColor = Color3fromRGB(0, 0, 0),
-			Outline = true,
-
-			DisplayDistance = true,
-			DisplayHealth = false,
-			DisplayName = false,
-			DisplayDisplayName = true,
-			DisplayTool = true
-		},
-
-		Tracer = {
-			Enabled = true,
-			RainbowColor = false,
-			RainbowOutlineColor = false,
-			Position = 1,
-
-			Transparency = 1,
-			Thickness = 1,
-			Color = Color3fromRGB(255, 255, 255),
-
-			OutlineColor = Color3fromRGB(0, 0, 0),
-			Outline = true
-		},
-
-		HeadDot = {
-			Enabled = true,
-			RainbowColor = false,
-			RainbowOutlineColor = false,
-
-			Color = Color3fromRGB(255, 255, 255),
-			Transparency = 1,
-			Thickness = 1,
-			NumSides = 30,
-			Filled = false,
-
-			OutlineColor = Color3fromRGB(0, 0, 0),
-			Outline = true
-		},
-
-		Box = {
-			Enabled = true,
-			RainbowColor = false,
-			RainbowOutlineColor = false,
-
-			Type = 1,
-			FillSquare = true,
-			FillColor = Color3fromRGB(255, 255, 255),
-			FillRainbowColor = false,
-			FillTransparency = 0.1,
-			LineSize = 14,
-
-			Color = Color3fromRGB(255, 255, 255),
-			Transparency = 1,
-			Thickness = 1,
-
-			OutlineColor = Color3fromRGB(0, 0, 0),
-			Outline = true
-		},
-
-		HealthBar = {
-			Enabled = true,
-			RainbowOutlineColor = false,
-			Offset = 4,
-			Blue = 100,
-			Position = 3,
-
-			Thickness = 1,
-			Transparency = 1,
-
-			OutlineColor = Color3fromRGB(0, 0, 0),
-			Outline = true
-		},
-
-		Chams = {
-			Enabled = false,
-			RainbowColor = false,
-
-			Color = Color3fromRGB(255, 255, 255),
-			Transparency = 0.2,
-			Thickness = 1,
-			Filled = false
-		},
-
-		Skeleton = {
-			Enabled = false,
-			RainbowColor = false,
-
-			Transparency = 1,
-			Thickness = 1,
-			Color = Color3fromRGB(255, 255, 255)
-		},
-
-		Highlight = {
-			Enabled = false,
-			RainbowColor = false,
-			RainbowOutlineColor = false,
-
-			DepthMode = Enum and Enum.HighlightDepthMode and Enum.HighlightDepthMode.AlwaysOnTop or nil,
-			FillColor = Color3fromRGB(255, 255, 255),
-			FillTransparency = 0.5,
-			HealthColor = false,
-			HealthColorBlue = 100,
-
-			OutlineTransparency = 1,
-			OutlineColor = Color3fromRGB(255, 255, 255)
-		},
-
-		Crosshair = {
-			Enabled = true,
-			RainbowColor = false,
-			RainbowOutlineColor = false,
-			TStyled = false,
-			Position = 1,
-
-			Size = 12,
-			GapSize = 6,
-			Rotation = 0,
-
-			Rotate = false,
-			RotateClockwise = true,
-			RotationSpeed = 5,
-
-			PulseGap = false,
-			PulsingStep = 10,
-			PulsingSpeed = 5,
-			PulsingBounds = {4, 8},
-
-			Color = Color3fromRGB(0, 255, 0),
-			Thickness = 1,
-			Transparency = 1,
-
-			OutlineColor = Color3fromRGB(0, 0, 0),
-			Outline = true,
-
-			CenterDot = {
-				Enabled = true,
-				RainbowColor = false,
-				RainbowOutlineColor = false,
-
-				Radius = 2,
-
-				Color = Color3fromRGB(0, 255, 0),
-				Transparency = 1,
-				Thickness = 1,
-				NumSides = 60,
-				Filled = false,
-
-				OutlineColor = Color3fromRGB(0, 0, 0),
-				Outline = true
-			}
-		}
-	},
-
-	UtilityAssets = {
-		WrappedObjects = {},
-		ServiceConnections = {}
-	}
-}
-
-local Environment = getgenv().ExunysDeveloperESP
-local _warn = warn
-warn = function(...)
-	return not Environment.DeveloperSettings.DisableWarnings and _warn(...)
-end
-
-local function Recursive(Table, Callback)
-	for Index, Value in next, Table do
-		Callback(Index, Value)
-		if type(Value) == "table" then
-			Recursive(Value, Callback)
-		end
-	end
-end
-
-local CoreFunctions = {
-	ConvertVector = function(Vector)
-		return Vector2new(Vector.X, Vector.Y)
-	end,
-
-	GetColorFromHealth = function(Health, MaxHealth, Blue)
-		return Color3fromRGB(255 - mathfloor(Health / MaxHealth * 255), mathfloor(Health / MaxHealth * 255), Blue or 0)
-	end,
-
-	GetRainbowColor = function()
-		local RainbowSpeed = Environment.DeveloperSettings.RainbowSpeed
-		return Color3fromHSV(FrameTick % RainbowSpeed / RainbowSpeed, 1, 1)
-	end,
-
-	GetLocalCharacterPosition = function()
-		local LocalCharacter = __index(LocalPlayer, "Character")
-		local LocalPlayerCheckPart = LocalCharacter and (__index(LocalCharacter, "PrimaryPart") or FindFirstChild(LocalCharacter, "Head"))
-		return LocalPlayerCheckPart and __index(LocalPlayerCheckPart, "Position") or CameraCFrame.Position
-	end,
-
-	GenerateHash = function(Bits)
-		local Result = ""
-		for _ = 1, Bits do
-			Result ..= ("EXUNYS_ESP")[mathrandom(1, 2) == 1 and "upper" or "lower"](stringchar(mathrandom(97, 122)))
-		end
-		return Result
-	end,
-
-	CalculateParameters = function(Object)
-		Object = type(Object) == "table" and Object.Object or Object
-		local Entry = type(Object) == "table" and Object or nil
-
-		if Entry then
-			Entry._Cache = Entry._Cache or {}
-			local _Cache = Entry._Cache
-			if _Cache.Tick == FrameTick then
-				return _Cache.Position, _Cache.Size, _Cache.Visible, _Cache.Top, _Cache.Bottom
-			end
-		end
-
-		local DeveloperSettings = Environment.DeveloperSettings
-		local WidthBoundary = DeveloperSettings.WidthBoundary
-
-		local IsAPlayer, Part = IsA(Object, "Player")
-
-		if IsAPlayer then
-			Part = __index(Object, "Character")
-			if Part then
-				Part = (__index(Part, "PrimaryPart") or FindFirstChild(Part, "HumanoidRootPart"))
 			end
 		else
-			if IsA(Object, "Model") then
-				Part = __index(Object, "PrimaryPart")
-			else
-				Part = Object
-			end
+			dot.Visible = false
+			outline.Visible = false
 		end
-
-		if not Part or IsA(Part, "Player") or IsA(Part, "Model") or not IsDescendantOf(Part, Workspace) then
-			return nil, nil, false, nil, nil
-		end
-
-		local PartCFrame, PartPosition = __index(Part, "CFrame"), __index(Part, "Position")
-		local PartUpVector = PartCFrame.UpVector
-
-		local PartParent = __index(Part, "Parent")
-		local RigType = PartParent and FindFirstChild(PartParent, "Torso") and "R6" or "R15"
-
-		local CameraUpVector = CameraCFrame.UpVector
-
-		local Top, TopOnScreen = WorldToViewportPoint(PartPosition + (PartUpVector * (RigType == "R6" and 0.5 or 1.8)) + CameraUpVector)
-		local Bottom, BottomOnScreen = WorldToViewportPoint(PartPosition - (PartUpVector * (RigType == "R6" and 4 or 2.5)) - CameraUpVector)
-
-		local TopX, TopY = Top.X, Top.Y
-		local BottomX, BottomY = Bottom.X, Bottom.Y
-
-		local Width = mathmax(mathfloor(mathabs(TopX - BottomX)), 3)
-		local Height = mathmax(mathfloor(mathmax(mathabs(BottomY - TopY), Width / 2)), 3)
-		local BoxSize = Vector2new(mathfloor(mathmax(Height / (IsAPlayer and WidthBoundary or 1), Width)), Height)
-		local BoxPosition = Vector2new(mathfloor(TopX / 2 + BottomX / 2 - BoxSize.X / 2), mathfloor(mathmin(TopY, BottomY)))
-
-		if Entry then
-			local _Cache = Entry._Cache
-			_Cache.Tick = FrameTick
-			_Cache.Position = BoxPosition
-			_Cache.Size = BoxSize
-			_Cache.Visible = (TopOnScreen and BottomOnScreen)
-			_Cache.Top = Top
-			_Cache.Bottom = Bottom
-		end
-
-		return BoxPosition, BoxSize, (TopOnScreen and BottomOnScreen), Top, Bottom
-	end,
-
-	Calculate3DQuad = function(_CFrame, SizeVector, YVector)
-		YVector = YVector or SizeVector
-		return {
-			{
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, -YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, -YVector.Y, SizeVector.Z).Position)
-			},
-			{
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, -YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, -YVector.Y, -SizeVector.Z).Position)
-			},
-			{
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, YVector.Y, -SizeVector.Z).Position)
-			},
-			{
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, -YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, -YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, -YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, -YVector.Y, -SizeVector.Z).Position)
-			},
-			{
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, -YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(SizeVector.X, -YVector.Y, -SizeVector.Z).Position)
-			},
-			{
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, YVector.Y, -SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, -YVector.Y, SizeVector.Z).Position),
-				WorldToViewportPoint(_CFrame * CFramenew(-SizeVector.X, -YVector.Y, -SizeVector.Z).Position)
-			}
-		}
-	end,
-
-	GetColor = function(Player, DefaultColor)
-		local Settings, TeamCheckOption = Environment.Settings, Environment.DeveloperSettings.TeamCheckOption
-		return Settings.EnableTeamColors and __index(Player, TeamCheckOption) == __index(LocalPlayer, TeamCheckOption) and Settings.TeamColor or DefaultColor
 	end
-}
 
-local UpdatingFunctions = {
-	ESP = function(Entry, TopTextObject, BottomTextObject)
-		local Settings = Environment.Properties.ESP
-		local Position, Size, OnScreen, Top, Bottom = CoreFunctions.CalculateParameters(Entry)
-
-		setrenderproperty(TopTextObject, "Visible", OnScreen)
-		setrenderproperty(BottomTextObject, "Visible", OnScreen)
-
-		if OnScreen then
-			for Index, Value in next, Settings do
-				if ValidProperties[Index] then
-					setrenderproperty(TopTextObject, Index, Value)
-					setrenderproperty(BottomTextObject, Index, Value)
-				end
-			end
-
-			local FontSize = Settings.RelativeFontSize and mathclamp(mathabs((Top - Bottom).Y) - 3, 6, Settings.Size) or Settings.Size
-			setrenderproperty(TopTextObject, "Size", FontSize)
-			setrenderproperty(BottomTextObject, "Size", FontSize)
-
-			local GetColor = CoreFunctions.GetColor
-			local MainColor = GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color)
-			local OutlineColor = Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor
-
-			setrenderproperty(TopTextObject, "Color", MainColor)
-			setrenderproperty(TopTextObject, "OutlineColor", OutlineColor)
-			setrenderproperty(BottomTextObject, "Color", MainColor)
-			setrenderproperty(BottomTextObject, "OutlineColor", OutlineColor)
-
-			local Offset = mathclamp(Settings.Offset, 10, 30)
-			local LabelsXPosition = Position.X + (Size.X / 2)
-
-			local Player, IsAPlayer = Entry.Object, Entry.IsAPlayer
-			local Name, DisplayName = Entry.Name, Entry.DisplayName
-
-			local Character = IsAPlayer and __index(Player, "Character") or Player
-			local Humanoid = FindFirstChildOfClass(Character, "Humanoid")
-			local Health, MaxHealth = Humanoid and __index(Humanoid, "Health") or Nan, Humanoid and __index(Humanoid, "MaxHealth") or Nan
-
-			local Tool = Settings.DisplayTool and FindFirstChildOfClass(Character, "Tool")
-
-			local TopContent = ""
-
-			if Settings.DisplayDisplayName and Settings.DisplayName and DisplayName ~= Name then
-				TopContent = stringformat("%s (%s)", DisplayName, Name)
-			elseif Settings.DisplayDisplayName and not Settings.DisplayName then
-				TopContent = DisplayName
-			elseif not Settings.DisplayDisplayName and Settings.DisplayName then
-				TopContent = Name
-			elseif Settings.DisplayDisplayName and Settings.DisplayName and DisplayName == Name then
-				TopContent = Name
-			end
-
-			if Settings.DisplayHealth and IsAPlayer then
-				TopContent = stringformat("[%s / %s] %s", mathfloor(Health), MaxHealth, TopContent)
-			end
-
-			if Entry._LastTopText ~= TopContent then
-				Entry._LastTopText = TopContent
-				setrenderproperty(TopTextObject, "Text", TopContent)
-			end
-
-			Entry._DistFrame = (Entry._DistFrame or 0) + 1
-
-			if Entry._DistFrame % 3 == 0 then
-				local PlayerPosition = __index((IsAPlayer and (__index(Character, "PrimaryPart") or __index(Character, "Head")) or Character), "Position") or Vector3zero
-				Entry._Distance = Settings.DisplayDistance and mathfloor((PlayerPosition - CoreFunctions.GetLocalCharacterPosition()).Magnitude)
-			end
-
-			local Distance = Entry._Distance
-			local BottomContent = Distance and stringformat("%s Studs", Distance) or ""
-
-			if Tool then
-				local ToolName = __index(Tool, "Name")
-				BottomContent = BottomContent..((Distance and "\n" or "")..ToolName)
-			end
-
-			if Entry._LastBottomText ~= BottomContent then
-				Entry._LastBottomText = BottomContent
-				setrenderproperty(BottomTextObject, "Text", BottomContent)
-			end
-
-			if Entry.PositionChanged then
-				setrenderproperty(TopTextObject, "Position", Vector2new(LabelsXPosition, Top.Y - Offset * 2.05))
-				setrenderproperty(BottomTextObject, "Position", Vector2new(LabelsXPosition, Bottom.Y + Offset / 2))
+	if entry.Visuals.Box and entry.Visuals.BoxOutline then
+		local box = entry.Visuals.Box
+		local outline = entry.Visuals.BoxOutline
+		box.Visible = onScreen
+		outline.Visible = onScreen and Settings.Box.Outline
+		if onScreen then
+			box.Color = getColor(entry, Settings.Box.Color)
+			box.Thickness = Settings.Box.Thickness
+			box.Filled = Settings.Box.Fill
+			box.Position = position
+			box.Size = size
+			if Settings.Box.Outline then
+				outline.Color = Settings.Box.OutlineColor
+				outline.Thickness = Settings.Box.Thickness + 1
+				outline.Filled = false
+				outline.Position = position
+				outline.Size = size
 			end
 		end
-	end,
+	end
 
-	Tracer = function(Entry, TracerObject, TracerOutlineObject)
-		local Settings = Environment.Properties.Tracer
-		local Position, Size, OnScreen = CoreFunctions.CalculateParameters(Entry)
-
-		setrenderproperty(TracerObject, "Visible", OnScreen)
-		setrenderproperty(TracerOutlineObject, "Visible", OnScreen and Settings.Outline)
-
-		if OnScreen then
-			for Index, Value in next, Settings do
-				if ValidProperties[Index] then
-					setrenderproperty(TracerObject, Index, Value)
-				end
-			end
-
-			setrenderproperty(TracerObject, "Color", CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color))
-
-			if Settings.Position == 1 then
-				setrenderproperty(TracerObject, "From", Vector2new(CameraViewportSize.X / 2, CameraViewportSize.Y))
-			elseif Settings.Position == 2 then
-				setrenderproperty(TracerObject, "From", CameraViewportSize / 2)
-			elseif Settings.Position == 3 then
-				setrenderproperty(TracerObject, "From", GetMouseLocation())
-			else
-				Settings.Position = 1
-			end
-
-			if Entry.PositionChanged then
-				setrenderproperty(TracerObject, "To", Vector2new(Position.X + (Size.X / 2), Position.Y + Size.Y))
-			end
-
-			if Settings.Outline then
-				setrenderproperty(TracerOutlineObject, "Color", Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor)
-				setrenderproperty(TracerOutlineObject, "Thickness", Settings.Thickness + 1)
-				setrenderproperty(TracerOutlineObject, "Transparency", Settings.Transparency)
-				setrenderproperty(TracerOutlineObject, "From", getrenderproperty(TracerObject, "From"))
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				setrenderproperty(TracerOutlineObject, "To", getrenderproperty(TracerObject, "To"))
+	if entry.Visuals.HealthBar and entry.Visuals.HealthBarOutline then
+		local bar = entry.Visuals.HealthBar
+		local outline = entry.Visuals.HealthBarOutline
+		bar.Visible = onScreen
+		outline.Visible = onScreen and Settings.HealthBar.Outline
+		if onScreen then
+			local maxHealth = humanoid.MaxHealth
+			local health = math.clamp(humanoid.Health, 0, maxHealth)
+			local ratio = health / maxHealth
+			local offset = 4
+			bar.Color = Settings.HealthBar.Color
+			bar.Thickness = Settings.HealthBar.Thickness
+			bar.From = Vector2.new(position.X - offset, position.Y + size.Y)
+			bar.To = Vector2.new(position.X - offset, bar.From.Y - ratio * size.Y)
+			if Settings.HealthBar.Outline then
+				outline.Color = Settings.HealthBar.OutlineColor
+				outline.Thickness = Settings.HealthBar.Thickness + 1
+				outline.From = Vector2.new(position.X - offset, position.Y + size.Y + 1)
+				outline.To = Vector2.new(position.X - offset, outline.From.Y - size.Y - 2)
 			end
 		end
-	end,
-
-	HeadDot = function(Entry, CircleObject, CircleOutlineObject)
-		local Settings = Environment.Properties.HeadDot
-		local Character = Entry.IsAPlayer and __index(Entry.Object, "Character") or __index(Entry.Object, "Parent")
-		local Head = Character and FindFirstChild(Character, "Head")
-
-		if not Head then
-			setrenderproperty(CircleObject, "Visible", false)
-			setrenderproperty(CircleOutlineObject, "Visible", false)
-			return
-		end
-
-		local HeadCFrame, HeadSize = __index(Head, "CFrame"), __index(Head, "Size")
-		local Vector, OnScreen = WorldToViewportPoint(HeadCFrame.Position)
-		local Top, Bottom = WorldToViewportPoint((HeadCFrame * CFramenew(0, HeadSize.Y / 2, 0)).Position), WorldToViewportPoint((HeadCFrame * CFramenew(0, -HeadSize.Y / 2, 0)).Position)
-
-		setrenderproperty(CircleObject, "Visible", OnScreen)
-		setrenderproperty(CircleOutlineObject, "Visible", OnScreen and Settings.Outline)
-
-		if OnScreen then
-			for Index, Value in next, Settings do
-				if ValidProperties[Index] then
-					setrenderproperty(CircleObject, Index, Value)
-					if Settings.Outline then
-						setrenderproperty(CircleOutlineObject, Index, Value)
-					end
-				end
-			end
-
-			setrenderproperty(CircleObject, "Color", CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color))
-
-			if Entry.PositionChanged then
-				setrenderproperty(CircleObject, "Position", CoreFunctions.ConvertVector(Vector))
-				setrenderproperty(CircleObject, "Radius", mathabs((Top - Bottom).Y) - 3)
-			end
-
-			if Settings.Outline then
-				setrenderproperty(CircleOutlineObject, "Color", Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor)
-				setrenderproperty(CircleOutlineObject, "Thickness", Settings.Thickness + 1)
-				setrenderproperty(CircleOutlineObject, "Transparency", Settings.Transparency)
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				setrenderproperty(CircleOutlineObject, "Position", getrenderproperty(CircleObject, "Position"))
-				setrenderproperty(CircleOutlineObject, "Radius", getrenderproperty(CircleObject, "Radius"))
-			end
-		end
-	end,
-
-	Box = function(Entry, BoxParts, BoxOutlines, SquareBox, FillBox, Quads)
-		local Settings = Environment.Properties.Box
-		local DeveloperSettings = Environment.DeveloperSettings
-
-		local Position, Size, OnScreen = CoreFunctions.CalculateParameters(Entry)
-		local ConvertVector = CoreFunctions.ConvertVector
-
-		local Object = Entry.Object
-		local IsAPlayer = Entry.IsAPlayer
-
-		local Character = IsAPlayer and __index(Object, "Character") or __index(Object, "Parent")
-
-		if Character == Players then
-			return
-		end
-
-		local Primary = Character and (__index(Character, "PrimaryPart") or FindFirstChild(Character, "HumanoidRootPart"))
-		Primary = Primary or not IsAPlayer and Object
-
-		local Type, Fill = Settings.Type, Settings.FillSquare
-
-		local SquareBoxObject = SquareBox[1]
-		local SquareBoxOutline = SquareBox[2]
-
-		local Visibility = function(Value)
-			for Index, _Value in next, BoxParts do
-				setrenderproperty(_Value, "Visible", Value and Type == 3)
-				setrenderproperty(BoxOutlines[Index], "Visible", Value and Settings.Outline and Type == 3)
-			end
-		end
-
-		local Visibility3D = function(Value)
-			for _, _Value in next, Quads do
-				_set(_Value, "Visible", Value and Type == 2)
-			end
-		end
-
-		if Type == 1 then
-			setrenderproperty(SquareBoxObject, "Visible", OnScreen and Type == 1)
-			setrenderproperty(SquareBoxOutline, "Visible", OnScreen and Settings.Outline and Type == 1)
-			Visibility(false)
-			Visibility3D(false)
-		elseif Type == 2 then
-			setrenderproperty(SquareBoxObject, "Visible", false)
-			setrenderproperty(SquareBoxOutline, "Visible", false)
-			Visibility(false)
-			Visibility3D(OnScreen and Type == 2)
-		elseif Type == 3 then
-			setrenderproperty(SquareBoxObject, "Visible", false)
-			setrenderproperty(SquareBoxOutline, "Visible", false)
-			Visibility(OnScreen and Type == 3)
-			Visibility3D(false)
-		end
-
-		setrenderproperty(FillBox, "Visible", Fill and OnScreen and Type ~= 2)
-
-		if not Primary then
-			setrenderproperty(FillBox, "Visible", false)
-			setrenderproperty(SquareBoxObject, "Visible", false)
-			setrenderproperty(SquareBoxOutline, "Visible", false)
-			Visibility(false)
-			Visibility3D(false)
-			return
-		end
-
-		local PrimaryCFrame, PrimarySize = __index(Primary, "CFrame"), __index(Primary, "Size")
-		local _3DSize = PrimarySize * Vector3new(1.05, 1.5, 0)
-		local Top, Bottom = WorldToViewportPoint((PrimaryCFrame * CFramenew(0, PrimarySize.Y / 2, 0)).Position), WorldToViewportPoint((PrimaryCFrame * CFramenew(0, -PrimarySize.Y / 2, 0)).Position)
-
-		local LineSize = mathclamp(mathabs((Top - Bottom).Y) - 3, 2, mathmax(Settings.LineSize, 20))
-
-		if getrenderproperty(BoxParts.TopLeft_Bottom, "Visible") or getrenderproperty(SquareBoxObject, "Visible") or getrenderproperty(Quads.Top, "Visible") then
-			if Fill and Type ~= 2 then
-				setrenderproperty(FillBox, "Transparency", Settings.FillTransparency)
-				setrenderproperty(FillBox, "Thickness", 0)
-				setrenderproperty(FillBox, "Color", CoreFunctions.GetColor(Entry.Object, Settings.FillRainbowColor and Rainbow or Settings.FillColor))
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				setrenderproperty(FillBox, "Position", Position)
-				setrenderproperty(FillBox, "Size", Size)
-			end
-
-			if Type == 1 then
-				for Index, Value in next, Settings do
-					if ValidProperties[Index] then
-						setrenderproperty(SquareBoxObject, Index, Value)
-					end
-				end
-
-				setrenderproperty(SquareBoxObject, "Color", CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color))
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				setrenderproperty(SquareBoxObject, "Position", Position)
-				setrenderproperty(SquareBoxObject, "Size", Size)
-			elseif Type == 2 then
-				if DeveloperSettings.Throttle then
-					Entry._Frame = (Entry._Frame or 0) + 1
-					if Entry._Frame % mathclamp(DeveloperSettings.ThrottleStep, 2, 4) ~= 0 then
-						return
-					end
-				end
-
-				for Index, Value in next, Settings do
-					for _, RenderObject in next, Quads do
-						if ValidProperties[Index] then
-							_set(RenderObject, Index, Value)
-						end
-					end
-				end
-
-				for _, Value in next, Quads do
-					_set(Value, "Fill", Fill)
-					_set(Value, "Color", CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color))
-				end
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				local Indexes, Positions = {1, 3, 4, 2}, CoreFunctions.Calculate3DQuad(PrimaryCFrame, PrimarySize, _3DSize)
-
-				for Index, RenderObject in next, Quads do
-					for _Index = 1, 4 do
-						_set(RenderObject, "Point"..stringchar(_Index + 64), ConvertVector(Positions[Index][Indexes[_Index]]))
-					end
-				end
-			elseif Type == 3 then
-				for Index, Value in next, Settings do
-					for _, RenderObject in next, BoxParts do
-						if ValidProperties[Index] then
-							setrenderproperty(RenderObject, Index, Value)
-						end
-					end
-				end
-
-				for _, Value in next, BoxParts do
-					setrenderproperty(Value, "Color", CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color))
-				end
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				setrenderproperty(BoxParts.TopLeft_Bottom, "From", Position)
-				setrenderproperty(BoxParts.TopLeft_Bottom, "To", Vector2new(Position.X, Position.Y + LineSize + LineSize / 2))
-
-				setrenderproperty(BoxParts.TopLeft_Right, "From", Position)
-				setrenderproperty(BoxParts.TopLeft_Right, "To", Vector2new(Position.X + LineSize, Position.Y))
-
-				setrenderproperty(BoxParts.TopRight_Bottom, "From", Vector2new(Position.X + Size.X, Position.Y))
-				setrenderproperty(BoxParts.TopRight_Bottom, "To", Vector2new(Position.X + Size.X, Position.Y + LineSize + LineSize / 2))
-
-				setrenderproperty(BoxParts.TopRight_Left, "From", Vector2new(Position.X + Size.X, Position.Y))
-				setrenderproperty(BoxParts.TopRight_Left, "To", Vector2new(Position.X + Size.X - LineSize, Position.Y))
-
-				setrenderproperty(BoxParts.BottomLeft_Top, "From", Vector2new(Position.X, Position.Y + Size.Y - LineSize - LineSize / 2))
-				setrenderproperty(BoxParts.BottomLeft_Top, "To", Vector2new(Position.X, Position.Y + Size.Y))
-
-				setrenderproperty(BoxParts.BottomLeft_Right, "From", Vector2new(Position.X, Position.Y + Size.Y))
-				setrenderproperty(BoxParts.BottomLeft_Right, "To", Vector2new(Position.X + LineSize, Position.Y + Size.Y))
-
-				setrenderproperty(BoxParts.BottomRight_Top, "From", Vector2new(Position.X + Size.X, Position.Y + Size.Y - LineSize - LineSize / 2))
-				setrenderproperty(BoxParts.BottomRight_Top, "To", Vector2new(Position.X + Size.X, Position.Y + Size.Y))
-
-				setrenderproperty(BoxParts.BottomRight_Left, "From", Vector2new(Position.X + Size.X, Position.Y + Size.Y))
-				setrenderproperty(BoxParts.BottomRight_Left, "To", Vector2new(Position.X + Size.X - LineSize, Position.Y + Size.Y))
-			end
-
-			if Settings.Outline then
-				if Type == 1 then
-					setrenderproperty(SquareBoxOutline, "Color", Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor)
-					setrenderproperty(SquareBoxOutline, "Thickness", Settings.Thickness + 1)
-					setrenderproperty(SquareBoxOutline, "Transparency", Settings.Transparency)
-
-					if not Entry.PositionChanged then
-						return
-					end
-
-					setrenderproperty(SquareBoxOutline, "Position", Position)
-					setrenderproperty(SquareBoxOutline, "Size", Size)
-				elseif Type == 3 then
-					for Index, Value in next, BoxOutlines do
-						setrenderproperty(Value, "Color", Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor)
-						setrenderproperty(Value, "Thickness", Settings.Thickness + 2)
-						setrenderproperty(Value, "Transparency", Settings.Transparency)
-
-						if not Entry.PositionChanged then
-							return
-						end
-
-						setrenderproperty(Value, "From", getrenderproperty(BoxParts[Index], "From"))
-						setrenderproperty(Value, "To", getrenderproperty(BoxParts[Index], "To"))
-					end
-				end
-			end
-		end
-	end,
-
-	HealthBar = function(Entry, MainObject, OutlineObject, Humanoid)
-		local Settings = Environment.Properties.HealthBar
-		local Position, Size, OnScreen = CoreFunctions.CalculateParameters(Entry)
-
-		setrenderproperty(MainObject, "Visible", OnScreen)
-		setrenderproperty(OutlineObject, "Visible", OnScreen and Settings.Outline)
-
-		if OnScreen and Position and Size then
-			for Index, Value in next, Settings do
-				if ValidProperties[Index] then
-					setrenderproperty(MainObject, Index, Value)
-				end
-			end
-
-			Humanoid = Humanoid or FindFirstChildOfClass(__index(Entry.Object, "Character"), "Humanoid")
-
-			local MaxHealth = Humanoid and __index(Humanoid, "MaxHealth") or 100
-			local Health = Humanoid and mathclamp(__index(Humanoid, "Health"), 0, MaxHealth) or 0
-
-			local Offset = mathclamp(Settings.Offset, 4, 12)
-
-			setrenderproperty(MainObject, "Color", CoreFunctions.GetColorFromHealth(Health, MaxHealth, Settings.Blue))
-
-			if Settings.Outline then
-				setrenderproperty(OutlineObject, "Color", Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor)
-				setrenderproperty(OutlineObject, "Thickness", Settings.Thickness + 1)
-				setrenderproperty(OutlineObject, "Transparency", Settings.Transparency)
-			end
-
-			if not Entry.PositionChanged then
-				return
-			end
-
-			if Settings.Position == 1 then
-				setrenderproperty(MainObject, "From", Vector2new(Position.X, Position.Y - Offset))
-				setrenderproperty(MainObject, "To", Vector2new(Position.X + (Health / MaxHealth) * Size.X, Position.Y - Offset))
-
-				if Settings.Outline then
-					setrenderproperty(OutlineObject, "From", Vector2new(Position.X - 1, Position.Y - Offset))
-					setrenderproperty(OutlineObject, "To", Vector2new(Position.X + Size.X + 1, Position.Y - Offset))
-				end
-			elseif Settings.Position == 2 then
-				setrenderproperty(MainObject, "From", Vector2new(Position.X, Position.Y + Size.Y + Offset))
-				setrenderproperty(MainObject, "To", Vector2new(Position.X + (Health / MaxHealth) * Size.X, Position.Y + Size.Y + Offset))
-
-				if Settings.Outline then
-					setrenderproperty(OutlineObject, "From", Vector2new(Position.X - 1, Position.Y + Size.Y + Offset))
-					setrenderproperty(OutlineObject, "To", Vector2new(Position.X + Size.X + 1, Position.Y + Size.Y + Offset))
-				end
-			elseif Settings.Position == 3 then
-				setrenderproperty(MainObject, "From", Vector2new(Position.X - Offset, Position.Y + Size.Y))
-				setrenderproperty(MainObject, "To", Vector2new(Position.X - Offset, getrenderproperty(MainObject, "From").Y - (Health / MaxHealth) * Size.Y))
-
-				if Settings.Outline then
-					setrenderproperty(OutlineObject, "From", Vector2new(Position.X - Offset, Position.Y + Size.Y + 1))
-					setrenderproperty(OutlineObject, "To", Vector2new(Position.X - Offset, (getrenderproperty(OutlineObject, "From").Y - 1 * Size.Y) - 2))
-				end
-			elseif Settings.Position == 4 then
-				setrenderproperty(MainObject, "From", Vector2new(Position.X + Size.X + Offset, Position.Y + Size.Y))
-				setrenderproperty(MainObject, "To", Vector2new(Position.X + Size.X + Offset, getrenderproperty(MainObject, "From").Y - (Health / MaxHealth) * Size.Y))
-
-				if Settings.Outline then
-					setrenderproperty(OutlineObject, "From", Vector2new(Position.X + Size.X + Offset, Position.Y + Size.Y + 1))
-					setrenderproperty(OutlineObject, "To", Vector2new(Position.X + Size.X + Offset, (getrenderproperty(OutlineObject, "From").Y - 1 * Size.Y) - 2))
-				end
-			else
-				Settings.Position = 3
-			end
-		end
-	end,
-
-	Chams = function(Entry, Part, Cham)
-		local Settings = Environment.Properties.Chams
-
-		if not (Part and Cham and Entry) then
-			return
-		end
-
-		local ChamsEnabled, ESPEnabled = Settings.Enabled, Environment.Settings.Enabled
-		local IsReady = Entry.Checks.Ready
-		local ConvertVector = CoreFunctions.ConvertVector
-
-		local _CFrame, PartSize = select(2, pcall(function()
-			return __index(Part, "CFrame"), __index(Part, "Size") / 2
-		end))
-
-		if not (ChamsEnabled and ESPEnabled and IsReady and _CFrame and PartSize and select(2, WorldToViewportPoint(_CFrame.Position))) then
-			for Index = 1, 6 do
-				_set(Cham["Quad"..Index], "Visible", false)
-			end
-			return
-		end
-
-		local Quads = {
-			Quad1Object = Cham.Quad1,
-			Quad2Object = Cham.Quad2,
-			Quad3Object = Cham.Quad3,
-			Quad4Object = Cham.Quad4,
-			Quad5Object = Cham.Quad5,
-			Quad6Object = Cham.Quad6
-		}
-
-		for Index, Value in next, Settings do
-			if Index == "Enabled" then
-				Index, Value = "Visible", ChamsEnabled and ESPEnabled and IsReady
-			elseif Index == "Color" then
-				Value = CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color)
-			end
-
-			if not pcall(_get, Quads.Quad1Object, Index) then
-				continue
-			end
-
-			for _, RenderObject in next, Quads do
-				_set(RenderObject, Index, Value)
-			end
-		end
-
-		if not Entry.PositionChanged then
-			return
-		end
-
-		local Indexes, Positions = {1, 3, 4, 2}, CoreFunctions.Calculate3DQuad(_CFrame, PartSize)
-
-		for Index = 1, 6 do
-			local RenderObject = Quads["Quad"..Index.."Object"]
-			for _Index = 1, 4 do
-				_set(RenderObject, "Point"..stringchar(_Index + 64), ConvertVector(Positions[Index][Indexes[_Index]]))
-			end
-		end
-	end,
-
-	Skeleton = function(Entry)
-		local Settings = Environment.Properties.Skeleton
-		local DeveloperSettings = Environment.DeveloperSettings
-
-		local Character = Entry.IsAPlayer and __index(Entry.Object, "Character") or __index(Entry.Object, "Parent")
-		local Head = Character and FindFirstChild(Character, "Head")
-		local Primary = Character and (FindFirstChild(Character, "HumanoidRootPart") or __index(Character, "PrimaryPart"))
-
-		Primary = Primary or not Entry.IsAPlayer and Entry.Object
-
-		local Limbs, RigType = {}, Entry.RigType
-		local ConvertVector, HeightModifier = CoreFunctions.ConvertVector, Environment.DeveloperSettings.SkeletonR6HeightModifier
-
-		for Index, Value in next, Entry.Visuals.Skeleton do
-			Limbs[Index] = Value
-		end
-
-		local Visibility = function(Value)
-			for _, _Value in next, Limbs do
-				setrenderproperty(_Value, "Visible", Value)
-			end
-		end
-
-		if not Head or not Primary or RigType == "N/A" then
-			return Visibility(false)
-		end
-
-		if DeveloperSettings.Throttle then
-			Entry._Frame = (Entry._Frame or 0) + 1
-			if Entry._Frame % mathclamp(DeveloperSettings.ThrottleStep, 2, 4) ~= 0 then
-				return
-			end
-		end
-
-		if select(3, CoreFunctions.CalculateParameters(Entry)) then
-			for _, RenderObject in next, Limbs do
-				setrenderproperty(RenderObject, "Visible", true)
-
-				for _Index, _Value in next, Settings do
-					if ValidProperties[_Index] then
-						setrenderproperty(RenderObject, _Index, _Value)
-					end
-				end
-
-				setrenderproperty(RenderObject, "Color", CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.Color))
-			end
-
-			local Head_Position = ConvertVector(WorldToViewportPoint(__index(Head, "Position")))
-
-			if RigType == "R15" then
-				for _, Value in next, {"LeftHand", "RightHand", "LeftLowerArm", "RightLowerArm", "LeftUpperArm", "RightUpperArm", "LeftFoot", "LeftLowerLeg", "UpperTorso", "LeftUpperLeg", "RightFoot", "RightLowerLeg", "LowerTorso", "RightUpperLeg"} do
-					if not FindFirstChild(Character, Value) then
-						repeat
-							Visibility(false); wait(0)
-						until WaitForChild(Character, Value)
-					end
-				end
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				local Spine_Start_Position = ConvertVector(WorldToViewportPoint(__index(Character.UpperTorso, "Position")))
-				local Spine_End_Position = ConvertVector(WorldToViewportPoint(__index(Character.LowerTorso, "Position")))
-
-				local LeftArm_Start_Position = ConvertVector(WorldToViewportPoint(__index(Character.LeftUpperArm, "Position")))
-				local LeftArm_Middle_Position = ConvertVector(WorldToViewportPoint(__index(Character.LeftLowerArm, "Position")))
-				local LeftArm_End_Position = ConvertVector(WorldToViewportPoint(__index(Character.LeftHand, "Position")))
-
-				local RightArm_Start_Position = ConvertVector(WorldToViewportPoint(__index(Character.RightUpperArm, "Position")))
-				local RightArm_Middle_Position = ConvertVector(WorldToViewportPoint(__index(Character.RightLowerArm, "Position")))
-				local RightArm_End_Position = ConvertVector(WorldToViewportPoint(__index(Character.RightHand, "Position")))
-
-				local LeftLeg_Start_Position = ConvertVector(WorldToViewportPoint(__index(Character.LeftUpperLeg, "Position")))
-				local LeftLeg_Middle_Position = ConvertVector(WorldToViewportPoint(__index(Character.LeftLowerLeg, "Position")))
-				local LeftLeg_End_Position = ConvertVector(WorldToViewportPoint(__index(Character.LeftFoot, "Position")))
-
-				local RightLeg_Start_Position = ConvertVector(WorldToViewportPoint(__index(Character.RightUpperLeg, "Position")))
-				local RightLeg_Middle_Position = ConvertVector(WorldToViewportPoint(__index(Character.RightLowerLeg, "Position")))
-				local RightLeg_End_Position = ConvertVector(WorldToViewportPoint(__index(Character.RightFoot, "Position")))
-
-				setrenderproperty(Limbs.Spine_Start, "From", Head_Position)
-				setrenderproperty(Limbs.Spine_Start, "To", Spine_Start_Position)
-
-				setrenderproperty(Limbs.Spine_End, "From", Spine_Start_Position)
-				setrenderproperty(Limbs.Spine_End, "To", Spine_End_Position)
-
-				setrenderproperty(Limbs.LeftArm_Start, "From", Spine_Start_Position)
-				setrenderproperty(Limbs.LeftArm_Start, "To", LeftArm_Start_Position)
-
-				setrenderproperty(Limbs.LeftArm_Middle, "From", LeftArm_Start_Position)
-				setrenderproperty(Limbs.LeftArm_Middle, "To", LeftArm_Middle_Position)
-
-				setrenderproperty(Limbs.LeftArm_End, "From", LeftArm_Middle_Position)
-				setrenderproperty(Limbs.LeftArm_End, "To", LeftArm_End_Position)
-
-				setrenderproperty(Limbs.RightArm_Start, "From", Spine_Start_Position)
-				setrenderproperty(Limbs.RightArm_Start, "To", RightArm_Start_Position)
-
-				setrenderproperty(Limbs.RightArm_Middle, "From", RightArm_Start_Position)
-				setrenderproperty(Limbs.RightArm_Middle, "To", RightArm_Middle_Position)
-
-				setrenderproperty(Limbs.RightArm_End, "From", RightArm_Middle_Position)
-				setrenderproperty(Limbs.RightArm_End, "To", RightArm_End_Position)
-
-				setrenderproperty(Limbs.LeftLeg_Start, "From", Spine_End_Position)
-				setrenderproperty(Limbs.LeftLeg_Start, "To", LeftLeg_Start_Position)
-
-				setrenderproperty(Limbs.LeftLeg_Middle, "From", LeftLeg_Start_Position)
-				setrenderproperty(Limbs.LeftLeg_Middle, "To", LeftLeg_Middle_Position)
-
-				setrenderproperty(Limbs.LeftLeg_End, "From", LeftLeg_Middle_Position)
-				setrenderproperty(Limbs.LeftLeg_End, "To", LeftLeg_End_Position)
-
-				setrenderproperty(Limbs.RightLeg_Start, "From", Spine_End_Position)
-				setrenderproperty(Limbs.RightLeg_Start, "To", RightLeg_Start_Position)
-
-				setrenderproperty(Limbs.RightLeg_Middle, "From", RightLeg_Start_Position)
-				setrenderproperty(Limbs.RightLeg_Middle, "To", RightLeg_Middle_Position)
-
-				setrenderproperty(Limbs.RightLeg_End, "From", RightLeg_Middle_Position)
-				setrenderproperty(Limbs.RightLeg_End, "To", RightLeg_End_Position)
-			elseif RigType == "R6" then
-				for _, Value in next, {"Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"} do
-					if not FindFirstChild(Character, Value) then
-						repeat
-							Visibility(false); wait(0)
-						until WaitForChild(Character, Value)
-					end
-				end
-
-				if not Entry.PositionChanged then
-					return
-				end
-
-				local Torso = __index(Character, "Torso")
-				local LeftArm = __index(Character, "Left Arm")
-				local RightArm = __index(Character, "Right Arm")
-				local LeftLeg = __index(Character, "Left Leg")
-				local RightLeg = __index(Character, "Right Leg")
-
-				local Torso_Height = __index(Torso, "Size").Y / 2 - (HeightModifier + 0.15)
-				local Spine_Start_Position = ConvertVector(WorldToViewportPoint((__index(Torso, "CFrame") * CFramenew(0, Torso_Height, 0)).Position))
-				local Spine_End_Position = ConvertVector(WorldToViewportPoint((__index(Torso, "CFrame") * CFramenew(0, -Torso_Height, 0)).Position))
-
-				local LeftArm_Height = __index(LeftArm, "Size").Y / 2 - HeightModifier
-				local LeftArm_Start_Position = ConvertVector(WorldToViewportPoint((__index(LeftArm, "CFrame") * CFramenew(0, LeftArm_Height, 0)).Position))
-				local LeftArm_End_Position = ConvertVector(WorldToViewportPoint((__index(LeftArm, "CFrame") * CFramenew(0, -LeftArm_Height, 0)).Position))
-
-				local RightArm_Height = __index(RightArm, "Size").Y / 2 - HeightModifier
-				local RightArm_Start_Position = ConvertVector(WorldToViewportPoint((__index(RightArm, "CFrame") * CFramenew(0, RightArm_Height, 0)).Position))
-				local RightArm_End_Position = ConvertVector(WorldToViewportPoint((__index(RightArm, "CFrame") * CFramenew(0, -RightArm_Height, 0)).Position))
-
-				local LeftLeg_Height = __index(LeftLeg, "Size").Y / 2 - HeightModifier
-				local LeftLeg_Start_Position = ConvertVector(WorldToViewportPoint((__index(LeftLeg, "CFrame") * CFramenew(0, LeftLeg_Height, 0)).Position))
-				local LeftLeg_End_Position = ConvertVector(WorldToViewportPoint((__index(LeftLeg, "CFrame") * CFramenew(0, -LeftLeg_Height, 0)).Position))
-
-				local RightLeg_Height = __index(RightLeg, "Size").Y / 2 - HeightModifier
-				local RightLeg_Start_Position = ConvertVector(WorldToViewportPoint((__index(RightLeg, "CFrame") * CFramenew(0, RightLeg_Height, 0)).Position))
-				local RightLeg_End_Position = ConvertVector(WorldToViewportPoint((__index(RightLeg, "CFrame") * CFramenew(0, -RightLeg_Height, 0)).Position))
-
-				setrenderproperty(Limbs.Spine_Start, "From", Head_Position)
-				setrenderproperty(Limbs.Spine_Start, "To", Spine_Start_Position)
-
-				setrenderproperty(Limbs.Spine_End, "From", Spine_Start_Position)
-				setrenderproperty(Limbs.Spine_End, "To", Spine_End_Position)
-
-				setrenderproperty(Limbs.LeftArm_Start, "From", LeftArm_Start_Position)
-				setrenderproperty(Limbs.LeftArm_Start, "To", LeftArm_End_Position)
-
-				setrenderproperty(Limbs.LeftArm_End, "From", Spine_Start_Position)
-				setrenderproperty(Limbs.LeftArm_End, "To", LeftArm_Start_Position)
-
-				setrenderproperty(Limbs.RightArm_Start, "From", RightArm_Start_Position)
-				setrenderproperty(Limbs.RightArm_Start, "To", RightArm_End_Position)
-
-				setrenderproperty(Limbs.RightArm_End, "From", Spine_Start_Position)
-				setrenderproperty(Limbs.RightArm_End, "To", RightArm_Start_Position)
-
-				setrenderproperty(Limbs.LeftLeg_Start, "From", LeftLeg_Start_Position)
-				setrenderproperty(Limbs.LeftLeg_Start, "To", LeftLeg_End_Position)
-
-				setrenderproperty(Limbs.LeftLeg_End, "From", Spine_End_Position)
-				setrenderproperty(Limbs.LeftLeg_End, "To", LeftLeg_Start_Position)
-
-				setrenderproperty(Limbs.RightLeg_Start, "From", RightLeg_Start_Position)
-				setrenderproperty(Limbs.RightLeg_Start, "To", RightLeg_End_Position)
-
-				setrenderproperty(Limbs.RightLeg_End, "From", Spine_End_Position)
-				setrenderproperty(Limbs.RightLeg_End, "To", RightLeg_Start_Position)
-			else
-				Visibility(false)
-			end
+	end
+
+	if entry.Visuals.Highlight then
+		local hl = entry.Visuals.Highlight
+		if char and char.Parent then
+			hl.Adornee = char
+			hl.Enabled = onScreen
+			hl.FillColor = getColor(entry, Settings.Highlight.Color)
+			hl.OutlineColor = Settings.Highlight.OutlineColor
+			hl.FillTransparency = Settings.Highlight.Transparency
 		else
-			Visibility(false)
-		end
-	end,
-
-	Highlight = function(Entry, Highlight)
-		local Settings = Environment.Properties.Highlight
-
-		if not (Entry.IsAPlayer and __index(Entry.Object, "Character") or __index(Entry.Object, "Parent")) then
-			return __newindex(Highlight, "Enabled", false)
-		end
-
-		__newindex(Highlight, "Enabled", select(3, CoreFunctions.CalculateParameters(Entry)))
-
-		if __index(Highlight, "Enabled") then
-			for Index, Value in next, Settings do
-				if stringfind(Index, "Color") or stringfind(Index, "Enabled") then
-					continue
-				elseif stringfind(Index, "Transparency") then
-					Value = 1 - Value
-				end
-
-				if not pcall(__index, Highlight, Index) then
-					continue
-				end
-
-				__newindex(Highlight, Index, Value)
-			end
-
-			local Humanoid = Entry.Humanoid
-
-			if Settings.HealthColor and Humanoid then
-				Highlight.FillColor = CoreFunctions.GetColorFromHealth(__index(Humanoid, "Health"), __index(Humanoid, "MaxHealth"), Settings.HealthColorBlue)
-			else
-				Highlight.FillColor = CoreFunctions.GetColor(Entry.Object, Settings.RainbowColor and Rainbow or Settings.FillColor)
-			end
-
-			Highlight.OutlineColor = CoreFunctions.GetColor(Entry.Object, Settings.RainbowOutlineColor and Rainbow or Settings.OutlineColor)
+			hl.Enabled = false
 		end
 	end
-}
-			
+end
+
+local function wrapPlayer(player)
+	if player == LocalPlayer then return end
+	if Entries[player] then return end
+	local entry = { Player = player, Visuals = {}, Settings = Settings }
+	Entries[player] = entry
+	createVisuals(entry)
+end
+
+local function unwrapPlayer(player)
+	local entry = Entries[player]
+	if not entry then return end
+	clearEntry(entry)
+	if entry.Visuals.Highlight then
+		pcall(function() entry.Visuals.Highlight:Destroy() end)
+	end
+	Entries[player] = nil
+end
+
+local function rebuildAll()
+	for player, entry in next, Entries do
+		createVisuals(entry)
+	end
+end
+
+local function updateAll()
+	FrameTick = tick()
+	Rainbow = rainbowColor()
+	for _, entry in next, Entries do
+		updateEntry(entry)
+	end
+end
+
+for _, player in next, Players:GetPlayers() do
+	wrapPlayer(player)
+end
+Players.PlayerAdded:Connect(wrapPlayer)
+Players.PlayerRemoving:Connect(unwrapPlayer)
+
+RunService.RenderStepped:Connect(updateAll)
+
+local crosshair = {}
+local function createCrosshair()
+	if not Settings.Crosshair.Enabled then return end
+	crosshair.Left = newDrawing("Line")
+	crosshair.Right = newDrawing("Line")
+	crosshair.Top = newDrawing("Line")
+	crosshair.Bottom = newDrawing("Line")
+	crosshair.LeftOutline = newDrawing("Line")
+	crosshair.RightOutline = newDrawing("Line")
+	crosshair.TopOutline = newDrawing("Line")
+	crosshair.BottomOutline = newDrawing("Line")
+end
+
+local function updateCrosshair()
+	if not Settings.Crosshair.Enabled then
+		for _, obj in next, crosshair do
+			if obj then obj.Visible = false end
+		end
+		return
+	end
+	local mouse = UserInputService:GetMouseLocation()
+	local size = Settings.Crosshair.Size
+	local gap = Settings.Crosshair.Gap
+	local thickness = Settings.Crosshair.Thickness
+	crosshair.Left.Visible = true
+	crosshair.Right.Visible = true
+	crosshair.Top.Visible = true
+	crosshair.Bottom.Visible = true
+	crosshair.Left.Color = Settings.Crosshair.Color
+	crosshair.Right.Color = Settings.Crosshair.Color
+	crosshair.Top.Color = Settings.Crosshair.Color
+	crosshair.Bottom.Color = Settings.Crosshair.Color
+	crosshair.Left.Thickness = thickness
+	crosshair.Right.Thickness = thickness
+	crosshair.Top.Thickness = thickness
+	crosshair.Bottom.Thickness = thickness
+	crosshair.Left.From = Vector2.new(mouse.X - gap - size, mouse.Y)
+	crosshair.Left.To = Vector2.new(mouse.X - gap, mouse.Y)
+	crosshair.Right.From = Vector2.new(mouse.X + gap, mouse.Y)
+	crosshair.Right.To = Vector2.new(mouse.X + gap + size, mouse.Y)
+	crosshair.Top.From = Vector2.new(mouse.X, mouse.Y - gap - size)
+	crosshair.Top.To = Vector2.new(mouse.X, mouse.Y - gap)
+	crosshair.Bottom.From = Vector2.new(mouse.X, mouse.Y + gap)
+	crosshair.Bottom.To = Vector2.new(mouse.X, mouse.Y + gap + size)
+	if Settings.Crosshair.Outline then
+		for _, name in next, {"Left", "Right", "Top", "Bottom"} do
+			local outline = crosshair[name .. "Outline"]
+			local line = crosshair[name]
+			if outline and line then
+				outline.Visible = true
+				outline.Color = Settings.Crosshair.OutlineColor
+				outline.Thickness = thickness + 1
+				outline.From = line.From
+				outline.To = line.To
+			end
+		end
+	else
+		for _, name in next, {"Left", "Right", "Top", "Bottom"} do
+			local outline = crosshair[name .. "Outline"]
+			if outline then outline.Visible = false end
+		end
+	end
+end
+
+createCrosshair()
+RunService.RenderStepped:Connect(updateCrosshair)
+
+local function createGui()
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "EXUNYS_ESP_GUI"
+	gui.ResetOnSpawn = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = CoreGui
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Main"
+	frame.Size = UDim2.fromOffset(210, 286)
+	frame.Position = UDim2.new(0, 20, 0, 20)
+	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	frame.BorderSizePixel = 0
+	frame.Active = true
+	frame.Draggable = true
+	frame.Parent = gui
+
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(1, 0, 0, 24)
+	title.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+	title.BorderSizePixel = 0
+	title.Text = "EXUNYS ESP"
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 14
+	title.Parent = frame
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Size = UDim2.new(1, 0, 1, -24)
+	scroll.Position = UDim2.new(0, 0, 0, 24)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 4
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scroll.Parent = frame
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 2)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = scroll
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 4)
+	padding.PaddingRight = UDim.new(0, 4)
+	padding.PaddingTop = UDim.new(0, 4)
+	padding.Parent = scroll
+
+	local function makeButton(text, callback)
+		local btn = Instance.new("TextButton")
+		btn.Size = UDim2.new(1, 0, 0, 22)
+		btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+		btn.BorderSizePixel = 0
+		btn.Text = text
+		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		btn.Font = Enum.Font.Gotham
+		btn.TextSize = 12
+		btn.Parent = scroll
+		btn.MouseButton1Click:Connect(callback)
+		return btn
+	end
+
+	local function makeToggle(name, get, set)
+		local btn = makeButton("", function() end)
+		local function refresh()
+			btn.Text = name .. ": " .. (get() and "ON" or "OFF")
+			btn.BackgroundColor3 = get() and Color3.fromRGB(60, 120, 60) or Color3.fromRGB(50, 50, 50)
+		end
+		btn.MouseButton1Click:Connect(function()
+			set(not get())
+			refresh()
+			rebuildAll()
+		end)
+		refresh()
+		return btn
+	end
+
+	makeToggle("ESP", function() return Settings.ESP.Enabled end, function(v) Settings.ESP.Enabled = v end)
+	makeToggle("Tracer", function() return Settings.Tracer.Enabled end, function(v) Settings.Tracer.Enabled = v end)
+	makeToggle("Head Dot", function() return Settings.HeadDot.Enabled end, function(v) Settings.HeadDot.Enabled = v end)
+	makeToggle("Box", function() return Settings.Box.Enabled end, function(v) Settings.Box.Enabled = v end)
+	makeToggle("Health Bar", function() return Settings.HealthBar.Enabled end, function(v) Settings.HealthBar.Enabled = v end)
+	makeToggle("Chams", function() return Settings.Chams.Enabled end, function(v) Settings.Chams.Enabled = v end)
+	makeToggle("Skeleton", function() return Settings.Skeleton.Enabled end, function(v) Settings.Skeleton.Enabled = v end)
+	makeToggle("Highlight", function() return Settings.Highlight.Enabled end, function(v) Settings.Highlight.Enabled = v end)
+	makeToggle("Crosshair", function() return Settings.Crosshair.Enabled end, function(v) Settings.Crosshair.Enabled = v end)
+
+	makeButton("Box: Square", function() Settings.Box.Type = 1; rebuildAll() end)
+	makeButton("Box: Corner", function() Settings.Box.Type = 2; rebuildAll() end)
+	makeButton("Fill Box: Toggle", function() Settings.Box.Fill = not Settings.Box.Fill; rebuildAll() end)
+	makeButton("Rainbow All: Toggle", function()
+		local v = not Settings.ESP.Rainbow
+		Settings.ESP.Rainbow = v
+		Settings.Tracer.Rainbow = v
+		Settings.HeadDot.Rainbow = v
+		Settings.Box.Rainbow = v
+		Settings.Chams.Rainbow = v
+		Settings.Skeleton.Rainbow = v
+		Settings.Highlight.Rainbow = v
+		rebuildAll()
+	end)
+	makeButton("Red Team", function()
+		for _, s in next, {Settings.ESP, Settings.Tracer, Settings.HeadDot, Settings.Box} do
+			s.Color = Color3.fromRGB(255, 0, 0)
+		end
+	end)
+	makeButton("Blue Team", function()
+		for _, s in next, {Settings.ESP, Settings.Tracer, Settings.HeadDot, Settings.Box} do
+			s.Color = Color3.fromRGB(0, 100, 255)
+		end
+	end)
+	makeButton("Green Crosshair", function() Settings.Crosshair.Color = Color3.fromRGB(0, 255, 0) end)
+	makeButton("Unload", function()
+		for player in next, Entries do
+			unwrapPlayer(player)
+		end
+		for _, obj in next, crosshair do
+			if obj and obj.Remove then pcall(obj.Remove, obj) end
+		end
+		gui:Destroy()
+	end)
+
+	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 8)
+	end)
+end
+
+createGui()
