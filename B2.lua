@@ -7,27 +7,28 @@ local Camera = Workspace.CurrentCamera
 local CoreGui = game:GetService("CoreGui")
 
 if not Drawing or not Drawing.new then
-	warn("EXUNYS_ESP: Drawing API unavailable in this executor.")
+	warn("EXUNYS_ESP: Drawing API unavailable.")
 	return
 end
 
 local function newDrawing(class)
 	local ok, obj = pcall(Drawing.new, class)
-	if ok and obj then
-		return obj
-	end
+	if ok and obj then return obj end
 	return nil
 end
 
 local Settings = {
-	ESP = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Size = 14, Offset = 10, Outline = true, Rainbow = false, DisplayName = true, DisplayDistance = true },
-	Tracer = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false },
-	HeadDot = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Radius = 6, Outline = true, Rainbow = false },
-	Box = { Enabled = false, Type = 1, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false, Fill = false },
-	HealthBar = { Enabled = false, Color = Color3.fromRGB(0,255,0), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true },
-	Chams = { Enabled = false, Color = Color3.fromRGB(255,255,255), Transparency = 0.3, Rainbow = false },
-	Skeleton = { Enabled = false, Color = Color3.fromRGB(255,255,255), Thickness = 1, Rainbow = false },
-	Highlight = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Transparency = 0.5, Rainbow = false },
+	ESP = {
+		Enabled = false,
+		Box = true, Tracer = true, HeadDot = true, HealthBar = true, Skeleton = false, Highlight = false,
+		Color = Color3.fromRGB(255,255,255),
+		OutlineColor = Color3.fromRGB(0,0,0),
+		BoxColor = Color3.fromRGB(255,255,255),
+		BoxOutlineColor = Color3.fromRGB(0,0,0),
+		SkeletonColor = Color3.fromRGB(255,255,255),
+		SkeletonOutlineColor = Color3.fromRGB(0,0,0),
+		Size = 14, Offset = 10, Outline = true, Rainbow = false, DisplayName = true, DisplayDistance = true
+	},
 	Crosshair = { Enabled = false, Color = Color3.fromRGB(0,255,0), Size = 12, Gap = 6, Thickness = 1, Outline = true, OutlineColor = Color3.fromRGB(0,0,0) }
 }
 
@@ -37,10 +38,6 @@ local Rainbow = Color3.fromRGB(255,255,255)
 
 local function rainbowColor()
 	return Color3.fromHSV(FrameTick % 1, 1, 1)
-end
-
-local function getWorldToViewport(pos)
-	return Camera:WorldToViewportPoint(pos)
 end
 
 local function getPlayerRoot(player)
@@ -61,28 +58,29 @@ local function getBoxParams(player)
 	if not root or not head then return nil end
 	local pos = root.Position
 	local up = Camera.CFrame.UpVector
-	local top, topVis = getWorldToViewport(pos + Vector3.new(0, 2.5, 0) + up)
-	local bottom, bottomVis = getWorldToViewport(pos - Vector3.new(0, 2.5, 0) - up)
-	if not topVis and not bottomVis then return nil end
-	local w = math.max(math.floor(math.abs(top.X - bottom.X)), 3)
-	local h = math.max(math.floor(math.max(math.abs(bottom.Y - top.Y), w / 2)), 3)
+	local center, centerVis = Camera:WorldToViewportPoint(pos)
+	if not centerVis then return nil end
+	local top, topVis = Camera:WorldToViewportPoint(pos + Vector3.new(0, 2.5, 0) + up)
+	local bottom, bottomVis = Camera:WorldToViewportPoint(pos - Vector3.new(0, 2.5, 0) - up)
+	local topX = topVis and top.X or center.X
+	local topY = topVis and top.Y or (center.Y - 100)
+	local bottomX = bottomVis and bottom.X or center.X
+	local bottomY = bottomVis and bottom.Y or (center.Y + 100)
+	local w = math.max(math.floor(math.abs(topX - bottomX)), 3)
+	local h = math.max(math.floor(math.max(math.abs(bottomY - topY), w / 2)), 3)
 	local size = Vector2.new(math.floor(math.max(h / 1.5, w)), h)
-	local position = Vector2.new(math.floor(top.X / 2 + bottom.X / 2 - size.X / 2), math.floor(math.min(top.Y, bottom.Y)))
-	return position, size, topVis and bottomVis, top, bottom
+	local position = Vector2.new(math.floor(topX / 2 + bottomX / 2 - size.X / 2), math.floor(math.min(topY, bottomY)))
+	return position, size, true, top, bottom, center
 end
 
 local function getColor(entry, defaultColor)
-	if entry.Settings and entry.Settings.Rainbow then
-		return Rainbow
-	end
+	if Settings.ESP.Rainbow then return Rainbow end
 	return defaultColor
 end
 
 local function clearEntry(entry)
 	for _, obj in next, entry.Visuals do
-		if obj and obj.Remove then
-			pcall(obj.Remove, obj)
-		end
+		if obj and obj.Remove then pcall(obj.Remove, obj) end
 	end
 	entry.Visuals = {}
 end
@@ -94,57 +92,68 @@ local function createVisuals(entry)
 	local top = newDrawing("Text")
 	local bottom = newDrawing("Text")
 	if top and bottom then
-		top.Center = true
-		bottom.Center = true
-		top.ZIndex = 4
-		bottom.ZIndex = 4
-		top.Visible = false
-		bottom.Visible = false
-		entry.Visuals.TopText = top
-		entry.Visuals.BottomText = bottom
+		top.Center = true; bottom.Center = true
+		top.ZIndex = 4; bottom.ZIndex = 4
+		top.Visible = false; bottom.Visible = false
+		entry.Visuals.TopText = top; entry.Visuals.BottomText = bottom
 	end
 
-	local line = newDrawing("Line")
-	local outline = newDrawing("Line")
+	local line = newDrawing("Line"); local outline = newDrawing("Line")
 	if line and outline then
-		line.Visible = false
-		outline.Visible = false
-		entry.Visuals.Tracer = line
-		entry.Visuals.TracerOutline = outline
+		line.Visible = false; outline.Visible = false
+		entry.Visuals.Tracer = line; entry.Visuals.TracerOutline = outline
 	end
 
-	local circle = newDrawing("Circle")
-	local circleOutline = newDrawing("Circle")
+	local circle = newDrawing("Circle"); local circleOutline = newDrawing("Circle")
 	if circle and circleOutline then
-		circle.Visible = false
-		circleOutline.Visible = false
-		entry.Visuals.HeadDot = circle
-		entry.Visuals.HeadDotOutline = circleOutline
+		circle.Visible = false; circleOutline.Visible = false
+		entry.Visuals.HeadDot = circle; entry.Visuals.HeadDotOutline = circleOutline
 	end
 
-	local square = newDrawing("Square")
-	local squareOutline = newDrawing("Square")
+	local square = newDrawing("Square"); local squareOutline = newDrawing("Square")
 	if square and squareOutline then
-		square.Visible = false
-		squareOutline.Visible = false
-		entry.Visuals.Box = square
-		entry.Visuals.BoxOutline = squareOutline
+		square.Visible = false; squareOutline.Visible = false
+		entry.Visuals.Box = square; entry.Visuals.BoxOutline = squareOutline
 	end
 
-	local bar = newDrawing("Line")
-	local barOutline = newDrawing("Line")
+	local bar = newDrawing("Line"); local barOutline = newDrawing("Line")
 	if bar and barOutline then
-		bar.Visible = false
-		barOutline.Visible = false
-		entry.Visuals.HealthBar = bar
-		entry.Visuals.HealthBarOutline = barOutline
+		bar.Visible = false; barOutline.Visible = false
+		entry.Visuals.HealthBar = bar; entry.Visuals.HealthBarOutline = barOutline
+	end
+
+	entry.Visuals.SkeletonLines = {}
+	local skeletonDefs = {
+		{"Head","UpperTorso"}, {"UpperTorso","LowerTorso"},
+		{"UpperTorso","LeftUpperArm"}, {"LeftUpperArm","LeftLowerArm"}, {"LeftLowerArm","LeftHand"},
+		{"UpperTorso","RightUpperArm"}, {"RightUpperArm","RightLowerArm"}, {"RightLowerArm","RightHand"},
+		{"LowerTorso","LeftUpperLeg"}, {"LeftUpperLeg","LeftLowerLeg"}, {"LeftLowerLeg","LeftFoot"},
+		{"LowerTorso","RightUpperLeg"}, {"RightUpperLeg","RightLowerLeg"}, {"RightLowerLeg","RightFoot"}
+	}
+	local r6Defs = {
+		{"Head","Torso"}, {"Torso","Left Arm"}, {"Torso","Right Arm"},
+		{"Torso","Left Leg"}, {"Torso","Right Leg"}
+	}
+	for _, def in next, skeletonDefs do
+		local line = newDrawing("Line"); local outline = newDrawing("Line")
+		if line and outline then
+			line.Visible = false; outline.Visible = false
+			table.insert(entry.Visuals.SkeletonLines, {line, outline, def[1], def[2], "R15"})
+		end
+	end
+	for _, def in next, r6Defs do
+		local line = newDrawing("Line"); local outline = newDrawing("Line")
+		if line and outline then
+			line.Visible = false; outline.Visible = false
+			table.insert(entry.Visuals.SkeletonLines, {line, outline, def[1], def[2], "R6"})
+		end
 	end
 
 	local hl = Instance.new("Highlight")
 	hl.Name = "EXUNYS_HIGHLIGHT"
-	hl.FillColor = Settings.Highlight.Color
-	hl.OutlineColor = Settings.Highlight.OutlineColor
-	hl.FillTransparency = Settings.Highlight.Transparency
+	hl.FillColor = Settings.ESP.Color
+	hl.OutlineColor = Settings.ESP.OutlineColor
+	hl.FillTransparency = 0.5
 	hl.Enabled = false
 	hl.Parent = CoreGui
 	entry.Visuals.Highlight = hl
@@ -157,33 +166,35 @@ local function updateEntry(entry)
 
 	local function hideAll()
 		for _, obj in next, entry.Visuals do
-			if obj then
+			if type(obj) == "table" then
+				for _, sub in next, obj do
+					if sub then
+						if sub.Visible ~= nil then sub.Visible = false end
+						if sub.Enabled ~= nil then sub.Enabled = false end
+					end
+				end
+			elseif obj then
 				if obj.Visible ~= nil then obj.Visible = false end
 				if obj.Enabled ~= nil then obj.Enabled = false end
 			end
 		end
 	end
 
-	if not char or not humanoid or humanoid.Health <= 0 then
-		hideAll()
-		return
+	if not Settings.ESP.Enabled or not char or not humanoid or humanoid.Health <= 0 then
+		hideAll(); return
 	end
 
-	local position, size, onScreen, top, bottom = getBoxParams(player)
-	if not position or not size or not onScreen then
-		hideAll()
-		return
+	local position, size, onScreen, top, bottom, center = getBoxParams(player)
+	if not position or not size then
+		hideAll(); return
 	end
 
 	if entry.Visuals.TopText and entry.Visuals.BottomText then
-		local topText = entry.Visuals.TopText
-		local bottomText = entry.Visuals.BottomText
+		local topText = entry.Visuals.TopText; local bottomText = entry.Visuals.BottomText
 		if Settings.ESP.Enabled then
-			topText.Visible = true
-			bottomText.Visible = true
+			topText.Visible = true; bottomText.Visible = true
 			local fontSize = math.clamp(math.abs((top - bottom).Y) - 3, 6, Settings.ESP.Size)
-			topText.Size = fontSize
-			bottomText.Size = fontSize
+			topText.Size = fontSize; bottomText.Size = fontSize
 			topText.Color = getColor(entry, Settings.ESP.Color)
 			bottomText.Color = getColor(entry, Settings.ESP.Color)
 			topText.OutlineColor = Settings.ESP.OutlineColor
@@ -204,128 +215,147 @@ local function updateEntry(entry)
 			topText.Position = Vector2.new(labelsX, top.Y - Settings.ESP.Offset * 2.05)
 			bottomText.Position = Vector2.new(labelsX, bottom.Y + Settings.ESP.Offset / 2)
 		else
-			topText.Visible = false
-			bottomText.Visible = false
+			topText.Visible = false; bottomText.Visible = false
 		end
 	end
 
 	if entry.Visuals.Tracer and entry.Visuals.TracerOutline then
-		local tracer = entry.Visuals.Tracer
-		local outline = entry.Visuals.TracerOutline
-		if Settings.Tracer.Enabled then
+		local tracer = entry.Visuals.Tracer; local outline = entry.Visuals.TracerOutline
+		if Settings.ESP.Enabled and Settings.ESP.Tracer then
 			tracer.Visible = true
-			tracer.Color = getColor(entry, Settings.Tracer.Color)
-			tracer.Thickness = Settings.Tracer.Thickness
+			tracer.Color = getColor(entry, Settings.ESP.Color)
+			tracer.Thickness = 1
 			tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
 			tracer.To = Vector2.new(position.X + size.X / 2, position.Y + size.Y)
-			if Settings.Tracer.Outline then
+			if Settings.ESP.Outline then
 				outline.Visible = true
-				outline.Color = Settings.Tracer.OutlineColor
-				outline.Thickness = Settings.Tracer.Thickness + 1
-				outline.From = tracer.From
-				outline.To = tracer.To
+				outline.Color = Settings.ESP.OutlineColor
+				outline.Thickness = 2
+				outline.From = tracer.From; outline.To = tracer.To
 			else
 				outline.Visible = false
 			end
 		else
-			tracer.Visible = false
-			outline.Visible = false
+			tracer.Visible = false; outline.Visible = false
 		end
 	end
 
 	if entry.Visuals.HeadDot and entry.Visuals.HeadDotOutline then
-		local dot = entry.Visuals.HeadDot
-		local outline = entry.Visuals.HeadDotOutline
+		local dot = entry.Visuals.HeadDot; local outline = entry.Visuals.HeadDotOutline
 		local head = getPlayerHead(player)
-		if Settings.HeadDot.Enabled and head then
-			local headPos, headVis = getWorldToViewport(head.Position)
+		if Settings.ESP.Enabled and Settings.ESP.HeadDot and head then
+			local headPos, headVis = Camera:WorldToViewportPoint(head.Position)
 			if headVis then
 				dot.Visible = true
-				dot.Color = getColor(entry, Settings.HeadDot.Color)
-				dot.Thickness = Settings.HeadDot.Thickness
-				dot.Radius = Settings.HeadDot.Radius
+				dot.Color = getColor(entry, Settings.ESP.Color)
+				dot.Thickness = 1; dot.Radius = 6
 				dot.Position = Vector2.new(headPos.X, headPos.Y)
-				if Settings.HeadDot.Outline then
+				if Settings.ESP.Outline then
 					outline.Visible = true
-					outline.Color = Settings.HeadDot.OutlineColor
-					outline.Thickness = Settings.HeadDot.Thickness + 1
-					outline.Radius = Settings.HeadDot.Radius
+					outline.Color = Settings.ESP.OutlineColor
+					outline.Thickness = 2; outline.Radius = 6
 					outline.Position = dot.Position
 				else
 					outline.Visible = false
 				end
 			else
-				dot.Visible = false
-				outline.Visible = false
+				dot.Visible = false; outline.Visible = false
 			end
 		else
-			dot.Visible = false
-			outline.Visible = false
+			dot.Visible = false; outline.Visible = false
 		end
 	end
 
 	if entry.Visuals.Box and entry.Visuals.BoxOutline then
-		local box = entry.Visuals.Box
-		local outline = entry.Visuals.BoxOutline
-		if Settings.Box.Enabled then
+		local box = entry.Visuals.Box; local outline = entry.Visuals.BoxOutline
+		if Settings.ESP.Enabled and Settings.ESP.Box then
 			box.Visible = true
-			box.Color = getColor(entry, Settings.Box.Color)
-			box.Thickness = Settings.Box.Thickness
-			box.Filled = Settings.Box.Fill
-			box.Position = position
-			box.Size = size
-			if Settings.Box.Outline then
+			box.Color = getColor(entry, Settings.ESP.BoxColor)
+			box.Thickness = 1
+			box.Position = position; box.Size = size
+			if Settings.ESP.Outline then
 				outline.Visible = true
-				outline.Color = Settings.Box.OutlineColor
-				outline.Thickness = Settings.Box.Thickness + 1
-				outline.Filled = false
-				outline.Position = position
-				outline.Size = size
+				outline.Color = Settings.ESP.BoxOutlineColor
+				outline.Thickness = 2
+				outline.Position = position; outline.Size = size
 			else
 				outline.Visible = false
 			end
 		else
-			box.Visible = false
-			outline.Visible = false
+			box.Visible = false; outline.Visible = false
 		end
 	end
 
 	if entry.Visuals.HealthBar and entry.Visuals.HealthBarOutline then
-		local bar = entry.Visuals.HealthBar
-		local outline = entry.Visuals.HealthBarOutline
-		if Settings.HealthBar.Enabled then
+		local bar = entry.Visuals.HealthBar; local outline = entry.Visuals.HealthBarOutline
+		if Settings.ESP.Enabled and Settings.ESP.HealthBar then
 			bar.Visible = true
 			local maxHealth = humanoid.MaxHealth
 			local health = math.clamp(humanoid.Health, 0, maxHealth)
 			local ratio = health / maxHealth
 			local offset = 4
-			bar.Color = Settings.HealthBar.Color
-			bar.Thickness = Settings.HealthBar.Thickness
+			bar.Color = Color3.fromRGB(255 - math.floor(ratio * 255), math.floor(ratio * 255), 0)
+			bar.Thickness = 1
 			bar.From = Vector2.new(position.X - offset, position.Y + size.Y)
 			bar.To = Vector2.new(position.X - offset, bar.From.Y - ratio * size.Y)
-			if Settings.HealthBar.Outline then
+			if Settings.ESP.Outline then
 				outline.Visible = true
-				outline.Color = Settings.HealthBar.OutlineColor
-				outline.Thickness = Settings.HealthBar.Thickness + 1
+				outline.Color = Settings.ESP.OutlineColor
+				outline.Thickness = 2
 				outline.From = Vector2.new(position.X - offset, position.Y + size.Y + 1)
 				outline.To = Vector2.new(position.X - offset, outline.From.Y - size.Y - 2)
 			else
 				outline.Visible = false
 			end
 		else
-			bar.Visible = false
-			outline.Visible = false
+			bar.Visible = false; outline.Visible = false
+		end
+	end
+
+	if entry.Visuals.SkeletonLines then
+		local rigType = "R15"
+		if char:FindFirstChild("Torso") then rigType = "R6" end
+		for _, item in next, entry.Visuals.SkeletonLines do
+			local line, outline, partA, partB, rig = item[1], item[2], item[3], item[4], item[5]
+			if Settings.ESP.Enabled and Settings.ESP.Skeleton and rig == rigType then
+				local a = char:FindFirstChild(partA)
+				local b = char:FindFirstChild(partB)
+				if a and b then
+					local aPos, aVis = Camera:WorldToViewportPoint(a.Position)
+					local bPos, bVis = Camera:WorldToViewportPoint(b.Position)
+					if aVis or bVis then
+						line.Visible = true
+						line.Color = getColor(entry, Settings.ESP.SkeletonColor)
+						line.Thickness = 1
+						line.From = Vector2.new(aPos.X, aPos.Y)
+						line.To = Vector2.new(bPos.X, bPos.Y)
+						if Settings.ESP.Outline then
+							outline.Visible = true
+							outline.Color = Settings.ESP.SkeletonOutlineColor
+							outline.Thickness = 2
+							outline.From = line.From; outline.To = line.To
+						else
+							outline.Visible = false
+						end
+					else
+						line.Visible = false; outline.Visible = false
+					end
+				else
+					line.Visible = false; outline.Visible = false
+				end
+			else
+				line.Visible = false; outline.Visible = false
+			end
 		end
 	end
 
 	if entry.Visuals.Highlight then
 		local hl = entry.Visuals.Highlight
-		if Settings.Highlight.Enabled and char and char.Parent then
+		if Settings.ESP.Enabled and Settings.ESP.Highlight and char and char.Parent then
 			hl.Adornee = char
 			hl.Enabled = true
-			hl.FillColor = getColor(entry, Settings.Highlight.Color)
-			hl.OutlineColor = Settings.Highlight.OutlineColor
-			hl.FillTransparency = Settings.Highlight.Transparency
+			hl.FillColor = getColor(entry, Settings.ESP.Color)
+			hl.OutlineColor = Settings.ESP.OutlineColor
 		else
 			hl.Enabled = false
 		end
@@ -335,7 +365,7 @@ end
 local function wrapPlayer(player)
 	if player == LocalPlayer then return end
 	if Entries[player] then return end
-	local entry = { Player = player, Visuals = {}, Settings = Settings }
+	local entry = { Player = player, Visuals = {} }
 	Entries[player] = entry
 	createVisuals(entry)
 end
@@ -349,8 +379,6 @@ local function unwrapPlayer(player)
 	end
 	Entries[player] = nil
 end
-
-local function rebuildAll() end
 
 local function updateAll()
 	FrameTick = tick()
@@ -366,23 +394,14 @@ end
 Players.PlayerAdded:Connect(wrapPlayer)
 Players.PlayerRemoving:Connect(unwrapPlayer)
 
-local frameCounter = 0
-RunService.RenderStepped:Connect(function()
-	frameCounter = frameCounter + 1
-	if frameCounter % 2 ~= 0 then return end
-	updateAll()
-end)
+RunService.RenderStepped:Connect(updateAll)
 
 local crosshair = {}
 local function createCrosshair()
-	crosshair.Left = newDrawing("Line")
-	crosshair.Right = newDrawing("Line")
-	crosshair.Top = newDrawing("Line")
-	crosshair.Bottom = newDrawing("Line")
-	crosshair.LeftOutline = newDrawing("Line")
-	crosshair.RightOutline = newDrawing("Line")
-	crosshair.TopOutline = newDrawing("Line")
-	crosshair.BottomOutline = newDrawing("Line")
+	crosshair.Left = newDrawing("Line"); crosshair.Right = newDrawing("Line")
+	crosshair.Top = newDrawing("Line"); crosshair.Bottom = newDrawing("Line")
+	crosshair.LeftOutline = newDrawing("Line"); crosshair.RightOutline = newDrawing("Line")
+	crosshair.TopOutline = newDrawing("Line"); crosshair.BottomOutline = newDrawing("Line")
 	for _, obj in next, crosshair do
 		if obj then obj.Visible = false end
 	end
@@ -399,18 +418,12 @@ local function updateCrosshair()
 	local size = Settings.Crosshair.Size
 	local gap = Settings.Crosshair.Gap
 	local thickness = Settings.Crosshair.Thickness
-	crosshair.Left.Visible = true
-	crosshair.Right.Visible = true
-	crosshair.Top.Visible = true
-	crosshair.Bottom.Visible = true
-	crosshair.Left.Color = Settings.Crosshair.Color
-	crosshair.Right.Color = Settings.Crosshair.Color
-	crosshair.Top.Color = Settings.Crosshair.Color
-	crosshair.Bottom.Color = Settings.Crosshair.Color
-	crosshair.Left.Thickness = thickness
-	crosshair.Right.Thickness = thickness
-	crosshair.Top.Thickness = thickness
-	crosshair.Bottom.Thickness = thickness
+	crosshair.Left.Visible = true; crosshair.Right.Visible = true
+	crosshair.Top.Visible = true; crosshair.Bottom.Visible = true
+	crosshair.Left.Color = Settings.Crosshair.Color; crosshair.Right.Color = Settings.Crosshair.Color
+	crosshair.Top.Color = Settings.Crosshair.Color; crosshair.Bottom.Color = Settings.Crosshair.Color
+	crosshair.Left.Thickness = thickness; crosshair.Right.Thickness = thickness
+	crosshair.Top.Thickness = thickness; crosshair.Bottom.Thickness = thickness
 	crosshair.Left.From = Vector2.new(mouse.X - gap - size, mouse.Y)
 	crosshair.Left.To = Vector2.new(mouse.X - gap, mouse.Y)
 	crosshair.Right.From = Vector2.new(mouse.X + gap, mouse.Y)
@@ -427,8 +440,7 @@ local function updateCrosshair()
 				outline.Visible = true
 				outline.Color = Settings.Crosshair.OutlineColor
 				outline.Thickness = thickness + 1
-				outline.From = line.From
-				outline.To = line.To
+				outline.From = line.From; outline.To = line.To
 			end
 		end
 	else
@@ -450,7 +462,6 @@ local function createGui()
 	gui.Parent = CoreGui
 
 	local frame = Instance.new("Frame")
-	frame.Name = "Main"
 	frame.Size = UDim2.fromOffset(210, 286)
 	frame.Position = UDim2.new(0, 20, 0, 20)
 	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
@@ -503,56 +514,52 @@ local function createGui()
 		return btn
 	end
 
-	local function makeToggle(name, get, set)
+	local espBtn = makeButton("", function() end)
+	local function refreshEsp()
+		espBtn.Text = "ESP: " .. (Settings.ESP.Enabled and "ON" or "OFF")
+		espBtn.BackgroundColor3 = Settings.ESP.Enabled and Color3.fromRGB(60, 120, 60) or Color3.fromRGB(50, 50, 50)
+	end
+	espBtn.MouseButton1Click:Connect(function()
+		Settings.ESP.Enabled = not Settings.ESP.Enabled
+		refreshEsp()
+	end)
+	refreshEsp()
+
+	local subToggles = {
+		{name = "Box", key = "Box"},
+		{name = "Tracer", key = "Tracer"},
+		{name = "Head Dot", key = "HeadDot"},
+		{name = "Health Bar", key = "HealthBar"},
+		{name = "Skeleton", key = "Skeleton"},
+		{name = "Highlight", key = "Highlight"},
+	}
+	for _, item in next, subToggles do
 		local btn = makeButton("", function() end)
 		local function refresh()
-			btn.Text = name .. ": " .. (get() and "ON" or "OFF")
-			btn.BackgroundColor3 = get() and Color3.fromRGB(60, 120, 60) or Color3.fromRGB(50, 50, 50)
+			btn.Text = item.name .. ": " .. (Settings.ESP[item.key] and "ON" or "OFF")
+			btn.BackgroundColor3 = Settings.ESP[item.key] and Color3.fromRGB(60, 120, 60) or Color3.fromRGB(50, 50, 50)
 		end
 		btn.MouseButton1Click:Connect(function()
-			set(not get())
+			Settings.ESP[item.key] = not Settings.ESP[item.key]
 			refresh()
-			rebuildAll()
 		end)
 		refresh()
-		return btn
 	end
 
-	makeToggle("ESP", function() return Settings.ESP.Enabled end, function(v) Settings.ESP.Enabled = v end)
-	makeToggle("Tracer", function() return Settings.Tracer.Enabled end, function(v) Settings.Tracer.Enabled = v end)
-	makeToggle("Head Dot", function() return Settings.HeadDot.Enabled end, function(v) Settings.HeadDot.Enabled = v end)
-	makeToggle("Box", function() return Settings.Box.Enabled end, function(v) Settings.Box.Enabled = v end)
-	makeToggle("Health Bar", function() return Settings.HealthBar.Enabled end, function(v) Settings.HealthBar.Enabled = v end)
-	makeToggle("Chams", function() return Settings.Chams.Enabled end, function(v) Settings.Chams.Enabled = v end)
-	makeToggle("Skeleton", function() return Settings.Skeleton.Enabled end, function(v) Settings.Skeleton.Enabled = v end)
-	makeToggle("Highlight", function() return Settings.Highlight.Enabled end, function(v) Settings.Highlight.Enabled = v end)
-	makeToggle("Crosshair", function() return Settings.Crosshair.Enabled end, function(v) Settings.Crosshair.Enabled = v end)
+	makeButton("Box Color: White", function() Settings.ESP.BoxColor = Color3.fromRGB(255,255,255); Settings.ESP.BoxOutlineColor = Color3.fromRGB(0,0,0) end)
+	makeButton("Box Color: Red", function() Settings.ESP.BoxColor = Color3.fromRGB(255,0,0); Settings.ESP.BoxOutlineColor = Color3.fromRGB(0,0,0) end)
+	makeButton("Box Color: Black", function() Settings.ESP.BoxColor = Color3.fromRGB(0,0,0); Settings.ESP.BoxOutlineColor = Color3.fromRGB(255,255,255) end)
+	makeButton("Box Color: Yellow", function() Settings.ESP.BoxColor = Color3.fromRGB(255,255,0); Settings.ESP.BoxOutlineColor = Color3.fromRGB(0,0,0) end)
 
-	makeButton("Box: Square", function() Settings.Box.Type = 1; rebuildAll() end)
-	makeButton("Box: Corner", function() Settings.Box.Type = 2; rebuildAll() end)
-	makeButton("Fill Box: Toggle", function() Settings.Box.Fill = not Settings.Box.Fill; rebuildAll() end)
-	makeButton("Rainbow All: Toggle", function()
-		local v = not Settings.ESP.Rainbow
-		Settings.ESP.Rainbow = v
-		Settings.Tracer.Rainbow = v
-		Settings.HeadDot.Rainbow = v
-		Settings.Box.Rainbow = v
-		Settings.Chams.Rainbow = v
-		Settings.Skeleton.Rainbow = v
-		Settings.Highlight.Rainbow = v
-		rebuildAll()
+	makeButton("Rainbow: Toggle", function()
+		Settings.ESP.Rainbow = not Settings.ESP.Rainbow
 	end)
-	makeButton("Red Team", function()
-		for _, s in next, {Settings.ESP, Settings.Tracer, Settings.HeadDot, Settings.Box} do
-			s.Color = Color3.fromRGB(255, 0, 0)
-		end
+	makeButton("Skeleton: Toggle", function()
+		Settings.ESP.Skeleton = not Settings.ESP.Skeleton
 	end)
-	makeButton("Blue Team", function()
-		for _, s in next, {Settings.ESP, Settings.Tracer, Settings.HeadDot, Settings.Box} do
-			s.Color = Color3.fromRGB(0, 100, 255)
-		end
+	makeButton("Crosshair: Toggle", function()
+		Settings.Crosshair.Enabled = not Settings.Crosshair.Enabled
 	end)
-	makeButton("Green Crosshair", function() Settings.Crosshair.Color = Color3.fromRGB(0, 255, 0) end)
 	makeButton("Unload", function()
 		for player in next, Entries do
 			unwrapPlayer(player)
