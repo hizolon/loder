@@ -20,11 +20,11 @@ local function newDrawing(class)
 end
 
 local Settings = {
-	ESP = { Enabled = true, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Size = 14, Offset = 10, Outline = true, Rainbow = false, DisplayName = true, DisplayDistance = true },
-	Tracer = { Enabled = true, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false },
-	HeadDot = { Enabled = true, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Radius = 6, Outline = true, Rainbow = false },
-	Box = { Enabled = true, Type = 1, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false, Fill = false },
-	HealthBar = { Enabled = true, Color = Color3.fromRGB(0,255,0), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true },
+	ESP = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Size = 14, Offset = 10, Outline = true, Rainbow = false, DisplayName = true, DisplayDistance = true },
+	Tracer = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false },
+	HeadDot = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Radius = 6, Outline = true, Rainbow = false },
+	Box = { Enabled = false, Type = 1, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true, Rainbow = false, Fill = false },
+	HealthBar = { Enabled = false, Color = Color3.fromRGB(0,255,0), OutlineColor = Color3.fromRGB(0,0,0), Thickness = 1, Outline = true },
 	Chams = { Enabled = false, Color = Color3.fromRGB(255,255,255), Transparency = 0.3, Rainbow = false },
 	Skeleton = { Enabled = false, Color = Color3.fromRGB(255,255,255), Thickness = 1, Rainbow = false },
 	Highlight = { Enabled = false, Color = Color3.fromRGB(255,255,255), OutlineColor = Color3.fromRGB(0,0,0), Transparency = 0.5, Rainbow = false },
@@ -91,97 +91,96 @@ local function createVisuals(entry)
 	clearEntry(entry)
 	entry.Visuals = {}
 
-	if Settings.ESP.Enabled then
-		local top = newDrawing("Text")
-		local bottom = newDrawing("Text")
-		if top and bottom then
-			top.Center = true
-			bottom.Center = true
-			top.ZIndex = 4
-			bottom.ZIndex = 4
-			entry.Visuals.TopText = top
-			entry.Visuals.BottomText = bottom
-		end
+	local top = newDrawing("Text")
+	local bottom = newDrawing("Text")
+	if top and bottom then
+		top.Center = true
+		bottom.Center = true
+		top.ZIndex = 4
+		bottom.ZIndex = 4
+		top.Visible = false
+		bottom.Visible = false
+		entry.Visuals.TopText = top
+		entry.Visuals.BottomText = bottom
 	end
 
-	if Settings.Tracer.Enabled then
-		local line = newDrawing("Line")
-		local outline = newDrawing("Line")
-		if line and outline then
-			entry.Visuals.Tracer = line
-			entry.Visuals.TracerOutline = outline
-		end
+	local line = newDrawing("Line")
+	local outline = newDrawing("Line")
+	if line and outline then
+		line.Visible = false
+		outline.Visible = false
+		entry.Visuals.Tracer = line
+		entry.Visuals.TracerOutline = outline
 	end
 
-	if Settings.HeadDot.Enabled then
-		local circle = newDrawing("Circle")
-		local outline = newDrawing("Circle")
-		if circle and outline then
-			entry.Visuals.HeadDot = circle
-			entry.Visuals.HeadDotOutline = outline
-		end
+	local circle = newDrawing("Circle")
+	local circleOutline = newDrawing("Circle")
+	if circle and circleOutline then
+		circle.Visible = false
+		circleOutline.Visible = false
+		entry.Visuals.HeadDot = circle
+		entry.Visuals.HeadDotOutline = circleOutline
 	end
 
-	if Settings.Box.Enabled then
-		local square = newDrawing("Square")
-		local squareOutline = newDrawing("Square")
-		if square and squareOutline then
-			entry.Visuals.Box = square
-			entry.Visuals.BoxOutline = squareOutline
-		end
+	local square = newDrawing("Square")
+	local squareOutline = newDrawing("Square")
+	if square and squareOutline then
+		square.Visible = false
+		squareOutline.Visible = false
+		entry.Visuals.Box = square
+		entry.Visuals.BoxOutline = squareOutline
 	end
 
-	if Settings.HealthBar.Enabled then
-		local bar = newDrawing("Line")
-		local barOutline = newDrawing("Line")
-		if bar and barOutline then
-			entry.Visuals.HealthBar = bar
-			entry.Visuals.HealthBarOutline = barOutline
-		end
+	local bar = newDrawing("Line")
+	local barOutline = newDrawing("Line")
+	if bar and barOutline then
+		bar.Visible = false
+		barOutline.Visible = false
+		entry.Visuals.HealthBar = bar
+		entry.Visuals.HealthBarOutline = barOutline
 	end
 
-	if Settings.Highlight.Enabled then
-		local hl = Instance.new("Highlight")
-		hl.Name = "EXUNYS_HIGHLIGHT"
-		hl.FillColor = Settings.Highlight.Color
-		hl.OutlineColor = Settings.Highlight.OutlineColor
-		hl.FillTransparency = Settings.Highlight.Transparency
-		hl.Parent = CoreGui
-		entry.Visuals.Highlight = hl
-	end
+	local hl = Instance.new("Highlight")
+	hl.Name = "EXUNYS_HIGHLIGHT"
+	hl.FillColor = Settings.Highlight.Color
+	hl.OutlineColor = Settings.Highlight.OutlineColor
+	hl.FillTransparency = Settings.Highlight.Transparency
+	hl.Enabled = false
+	hl.Parent = CoreGui
+	entry.Visuals.Highlight = hl
 end
 
 local function updateEntry(entry)
 	local player = entry.Player
 	local char = player and player.Character
 	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-	if not char or not humanoid or humanoid.Health <= 0 then
+
+	local function hideAll()
 		for _, obj in next, entry.Visuals do
 			if obj then
 				if obj.Visible ~= nil then obj.Visible = false end
 				if obj.Enabled ~= nil then obj.Enabled = false end
 			end
 		end
+	end
+
+	if not char or not humanoid or humanoid.Health <= 0 then
+		hideAll()
 		return
 	end
 
 	local position, size, onScreen, top, bottom = getBoxParams(player)
-	if not position or not size then
-		for _, obj in next, entry.Visuals do
-			if obj then
-				if obj.Visible ~= nil then obj.Visible = false end
-				if obj.Enabled ~= nil then obj.Enabled = false end
-			end
-		end
+	if not position or not size or not onScreen then
+		hideAll()
 		return
 	end
 
 	if entry.Visuals.TopText and entry.Visuals.BottomText then
 		local topText = entry.Visuals.TopText
 		local bottomText = entry.Visuals.BottomText
-		topText.Visible = onScreen
-		bottomText.Visible = onScreen
-		if onScreen then
+		if Settings.ESP.Enabled then
+			topText.Visible = true
+			bottomText.Visible = true
 			local fontSize = math.clamp(math.abs((top - bottom).Y) - 3, 6, Settings.ESP.Size)
 			topText.Size = fontSize
 			bottomText.Size = fontSize
@@ -196,30 +195,41 @@ local function updateEntry(entry)
 			if Settings.ESP.DisplayName and player.DisplayName ~= player.Name then
 				name = player.DisplayName .. " (" .. player.Name .. ")"
 			end
-			local distance = Settings.ESP.DisplayDistance and math.floor((player.Character.PrimaryPart.Position - LocalPlayer.Character.PrimaryPart.Position).Magnitude) or nil
+			local distance = nil
+			if Settings.ESP.DisplayDistance and LocalPlayer.Character and LocalPlayer.Character.PrimaryPart then
+				distance = math.floor((char.PrimaryPart.Position - LocalPlayer.Character.PrimaryPart.Position).Magnitude)
+			end
 			topText.Text = name
 			bottomText.Text = distance and (tostring(distance) .. " Studs") or ""
 			topText.Position = Vector2.new(labelsX, top.Y - Settings.ESP.Offset * 2.05)
 			bottomText.Position = Vector2.new(labelsX, bottom.Y + Settings.ESP.Offset / 2)
+		else
+			topText.Visible = false
+			bottomText.Visible = false
 		end
 	end
 
 	if entry.Visuals.Tracer and entry.Visuals.TracerOutline then
 		local tracer = entry.Visuals.Tracer
 		local outline = entry.Visuals.TracerOutline
-		tracer.Visible = onScreen
-		outline.Visible = onScreen and Settings.Tracer.Outline
-		if onScreen then
+		if Settings.Tracer.Enabled then
+			tracer.Visible = true
 			tracer.Color = getColor(entry, Settings.Tracer.Color)
 			tracer.Thickness = Settings.Tracer.Thickness
 			tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
 			tracer.To = Vector2.new(position.X + size.X / 2, position.Y + size.Y)
 			if Settings.Tracer.Outline then
+				outline.Visible = true
 				outline.Color = Settings.Tracer.OutlineColor
 				outline.Thickness = Settings.Tracer.Thickness + 1
 				outline.From = tracer.From
 				outline.To = tracer.To
+			else
+				outline.Visible = false
 			end
+		else
+			tracer.Visible = false
+			outline.Visible = false
 		end
 	end
 
@@ -227,21 +237,26 @@ local function updateEntry(entry)
 		local dot = entry.Visuals.HeadDot
 		local outline = entry.Visuals.HeadDotOutline
 		local head = getPlayerHead(player)
-		if head then
+		if Settings.HeadDot.Enabled and head then
 			local headPos, headVis = getWorldToViewport(head.Position)
-			dot.Visible = headVis
-			outline.Visible = headVis and Settings.HeadDot.Outline
 			if headVis then
+				dot.Visible = true
 				dot.Color = getColor(entry, Settings.HeadDot.Color)
 				dot.Thickness = Settings.HeadDot.Thickness
 				dot.Radius = Settings.HeadDot.Radius
 				dot.Position = Vector2.new(headPos.X, headPos.Y)
 				if Settings.HeadDot.Outline then
+					outline.Visible = true
 					outline.Color = Settings.HeadDot.OutlineColor
 					outline.Thickness = Settings.HeadDot.Thickness + 1
 					outline.Radius = Settings.HeadDot.Radius
 					outline.Position = dot.Position
+				else
+					outline.Visible = false
 				end
+			else
+				dot.Visible = false
+				outline.Visible = false
 			end
 		else
 			dot.Visible = false
@@ -252,30 +267,34 @@ local function updateEntry(entry)
 	if entry.Visuals.Box and entry.Visuals.BoxOutline then
 		local box = entry.Visuals.Box
 		local outline = entry.Visuals.BoxOutline
-		box.Visible = onScreen
-		outline.Visible = onScreen and Settings.Box.Outline
-		if onScreen then
+		if Settings.Box.Enabled then
+			box.Visible = true
 			box.Color = getColor(entry, Settings.Box.Color)
 			box.Thickness = Settings.Box.Thickness
 			box.Filled = Settings.Box.Fill
 			box.Position = position
 			box.Size = size
 			if Settings.Box.Outline then
+				outline.Visible = true
 				outline.Color = Settings.Box.OutlineColor
 				outline.Thickness = Settings.Box.Thickness + 1
 				outline.Filled = false
 				outline.Position = position
 				outline.Size = size
+			else
+				outline.Visible = false
 			end
+		else
+			box.Visible = false
+			outline.Visible = false
 		end
 	end
 
 	if entry.Visuals.HealthBar and entry.Visuals.HealthBarOutline then
 		local bar = entry.Visuals.HealthBar
 		local outline = entry.Visuals.HealthBarOutline
-		bar.Visible = onScreen
-		outline.Visible = onScreen and Settings.HealthBar.Outline
-		if onScreen then
+		if Settings.HealthBar.Enabled then
+			bar.Visible = true
 			local maxHealth = humanoid.MaxHealth
 			local health = math.clamp(humanoid.Health, 0, maxHealth)
 			local ratio = health / maxHealth
@@ -285,19 +304,25 @@ local function updateEntry(entry)
 			bar.From = Vector2.new(position.X - offset, position.Y + size.Y)
 			bar.To = Vector2.new(position.X - offset, bar.From.Y - ratio * size.Y)
 			if Settings.HealthBar.Outline then
+				outline.Visible = true
 				outline.Color = Settings.HealthBar.OutlineColor
 				outline.Thickness = Settings.HealthBar.Thickness + 1
 				outline.From = Vector2.new(position.X - offset, position.Y + size.Y + 1)
 				outline.To = Vector2.new(position.X - offset, outline.From.Y - size.Y - 2)
+			else
+				outline.Visible = false
 			end
+		else
+			bar.Visible = false
+			outline.Visible = false
 		end
 	end
 
 	if entry.Visuals.Highlight then
 		local hl = entry.Visuals.Highlight
-		if char and char.Parent then
+		if Settings.Highlight.Enabled and char and char.Parent then
 			hl.Adornee = char
-			hl.Enabled = onScreen
+			hl.Enabled = true
 			hl.FillColor = getColor(entry, Settings.Highlight.Color)
 			hl.OutlineColor = Settings.Highlight.OutlineColor
 			hl.FillTransparency = Settings.Highlight.Transparency
@@ -325,11 +350,7 @@ local function unwrapPlayer(player)
 	Entries[player] = nil
 end
 
-local function rebuildAll()
-	for player, entry in next, Entries do
-		createVisuals(entry)
-	end
-end
+local function rebuildAll() end
 
 local function updateAll()
 	FrameTick = tick()
@@ -345,11 +366,15 @@ end
 Players.PlayerAdded:Connect(wrapPlayer)
 Players.PlayerRemoving:Connect(unwrapPlayer)
 
-RunService.RenderStepped:Connect(updateAll)
+local frameCounter = 0
+RunService.RenderStepped:Connect(function()
+	frameCounter = frameCounter + 1
+	if frameCounter % 2 ~= 0 then return end
+	updateAll()
+end)
 
 local crosshair = {}
 local function createCrosshair()
-	if not Settings.Crosshair.Enabled then return end
 	crosshair.Left = newDrawing("Line")
 	crosshair.Right = newDrawing("Line")
 	crosshair.Top = newDrawing("Line")
@@ -358,6 +383,9 @@ local function createCrosshair()
 	crosshair.RightOutline = newDrawing("Line")
 	crosshair.TopOutline = newDrawing("Line")
 	crosshair.BottomOutline = newDrawing("Line")
+	for _, obj in next, crosshair do
+		if obj then obj.Visible = false end
+	end
 end
 
 local function updateCrosshair()
